@@ -12,6 +12,10 @@
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <!-- This browser fetches user-selected HTTP pages through URLSession. -->
+    <key>NSAppTransportSecurity</key><dict>
+        <key>NSAllowsArbitraryLoads</key><true/>
+    </dict>
     <key>NSDocumentsFolderUsageDescription</key><string>Open local web pages and their linked files when you choose an address in Documents.</string>
     <key>NSDesktopFolderUsageDescription</key><string>Open local web pages and their linked files when you choose an address on the Desktop.</string>
     <key>NSDownloadsFolderUsageDescription</key><string>Open local web pages and their linked files when you choose an address in Downloads.</string>

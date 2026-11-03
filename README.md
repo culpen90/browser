@@ -1,12 +1,30 @@
 # Browser
 
-A native macOS browser foundation with an engine written in Swift. The project starts from an empty repository and has no third-party dependencies.
+A native macOS browser foundation with an engine written in Swift and no third-party dependencies.
 
 The engine parses HTML into a document tree, computes a supported subset of CSS, lays out blocks and inline text, and produces its own display list. AppKit draws that display list and supplies the native window and controls. Foundation supplies HTTP, HTTPS, file access, and TLS. There is no WebKit, Chromium, web view, or system HTML importer.
 
-## Build and open the app
+## Download and install
 
-Requirements: macOS 13 or later and Xcode's Swift toolchain (Swift 6 or later).
+[Download Browser v0.1.0 for macOS](https://github.com/culpen90/browser/releases/tag/v0.1.0). The release includes a real `Browser.app` for macOS 13 or later, with both Apple silicon and Intel support. Xcode and a developer account are not required to run it.
+
+1. Download `Browser-0.1.0-macOS-universal.dmg`, open it, and drag `Browser.app` to Applications. Alternatively, download and extract `Browser-0.1.0-macOS-universal.zip`, then move `Browser.app` to Applications.
+2. Open Browser from Applications.
+3. If macOS blocks the first launch because it cannot verify the developer, open **System Settings → Privacy & Security**, click **Open Anyway** for Browser, and confirm **Open**. See [Apple's first-launch instructions](https://support.apple.com/102445).
+
+This release is ad-hoc signed and is not notarized by Apple. It does not use a paid Apple Developer membership. Ad-hoc signing checks the bundle's integrity but does not establish a verified developer identity.
+
+This is an early engine foundation. Text and links on simple pages are the current target; JavaScript, interactive forms, and tabs are not implemented. Read the [engine boundaries](#engine-boundaries) before relying on it for everyday browsing.
+
+The release provides `SHA256SUMS.txt` to check the downloaded packages. With both the DMG and ZIP beside that file, run:
+
+```sh
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+## Build and open from source
+
+Requirements for source builds: macOS 13 or later and Xcode's Swift toolchain (Swift 6 or later).
 
 Clone the repository, build, and install the app locally:
 
@@ -17,7 +35,7 @@ cd browser
 open ~/Applications/Browser.app
 ```
 
-The install script creates `~/Applications/Browser.app`, `dist/Browser.app`, and a portable `dist/Browser.zip`. Build outputs are excluded from the repository. The packaged binary targets the architecture of the Mac used to build it. Local builds are ad-hoc signed; they are not notarized for distribution.
+The install script creates `~/Applications/Browser.app`, `dist/Browser.app`, and a portable `dist/Browser.zip`. Build outputs are excluded from the repository. Local builds target the architecture of the Mac used to build them and are ad-hoc signed.
 
 ## Develop
 
@@ -36,6 +54,14 @@ Open `Package.swift` in Xcode to work on the project. `scripts/build-app.sh` cre
 swift run Browser Fixtures/index.html
 open dist/Browser.app --args https://example.com
 ```
+
+To build the app for both Apple silicon and Intel, use `./scripts/build-app.sh --universal`. To create the versioned universal ZIP, DMG, and SHA-256 checksums used for a GitHub release, run:
+
+```sh
+./scripts/package-release.sh
+```
+
+Releases are published manually. GitHub Actions runs tests on Apple silicon and Intel and checks universal packaging; it does not create tags or publish releases.
 
 For synced Documents folders, use the installed app or the ZIP: file-provider metadata can invalidate a loose app bundle's signature after the build. Packaging uses a temporary folder outside the synced workspace before signing.
 
