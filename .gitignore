@@ -3,3 +3,10 @@
 dist/
 .DS_Store
 *.xcuserstate
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore
+*.p12
+*signing.properties

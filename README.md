@@ -1,8 +1,56 @@
 # Browser
 
-A native macOS browser foundation with an engine written in Swift and no third-party dependencies.
+A native browser foundation for macOS and Android with an independent HTML/CSS engine and no third-party runtime dependencies.
 
 The engine parses HTML into a document tree, computes a supported subset of CSS, lays out blocks and inline text, and produces its own display list. AppKit draws that display list and supplies the native window and controls. Foundation supplies HTTP, HTTPS, file access, and TLS. There is no WebKit, Chromium, web view, or system HTML importer.
+
+The macOS implementation remains in `Sources` and uses Swift/AppKit. The Android port lives in `android` and uses Java, native Android controls, Canvas drawing, and platform HTTP/TLS and image APIs. Both versions share the same early engine scope. The Mac build and its release remain available independently.
+
+## Android download and install
+
+[Download Browser for Android v0.1.0](https://github.com/culpen90/browser/releases/tag/android-v0.1.0). Choose **`Browser-0.1.0-Android.apk`**. Requires **Android 8.0 (API 26) or later**; one APK supports phones and tablets across CPU architectures. It is a signed, optimized release build with debugging disabled.
+
+Open the downloaded APK and allow your browser or file manager to install apps if Android asks. Future APK updates must be signed with the same release key. The release includes `Android-SHA256SUMS.txt` and the public signing-certificate fingerprint in `Android-signature.txt`.
+
+Android provides an address bar, Back/Forward, Home, Reload/Stop, scrolling, touch and keyboard links, TalkBack page text/link actions, and a menu for opening HTML/text files through Android's document picker or copying page text/address. The bundled sample page works offline. Chosen local documents currently support inline CSS and network resources; relative companion files are unavailable through the document picker.
+
+This is a production-signed package of the **early browser foundation**, with the same broad limits as the Mac app: no JavaScript, interactive forms, tabs, downloads, or complete CSS layout. Use it for simple text-and-link pages. History stays in memory and is restored across Activity recreation; cookies are in memory and reset when the Activity's loader is recreated. No analytics or account service is included.
+
+### Build Android from source
+
+Install JDK 21, Android SDK platform 36, and build-tools 36.0.0. Set `JAVA_HOME` and `ANDROID_HOME`, then:
+
+```sh
+cd android
+./gradlew testDebugUnitTest lintDebug assembleDebug
+```
+
+Open the `android` folder in Android Studio, or install `android/app/build/outputs/apk/debug/app-debug.apk` on an emulator. Debug builds use a separate application ID (`com.culpen.browser.debug`) and can coexist with the release app (`com.culpen.browser`). The application itself has no third-party dependencies; Gradle, the Android build plugin, JUnit, and AndroidX Test are build/test dependencies.
+
+To test on an **emulator only**, select its serial explicitly:
+
+```sh
+cd android
+ANDROID_SERIAL=emulator-5580 ./gradlew connectedDebugAndroidTest
+```
+
+For release signing, generate a dedicated identity **once** using `./scripts/setup-android-signing.sh`. It writes the keystore and password properties outside the checkout at `~/.local/share/browser-android/` with private file permissions. Back up both files securely; losing them prevents compatible updates. Build the signed APK with:
+
+```sh
+./scripts/package-android-release.sh
+```
+
+Set `ANDROID_BROWSER_SIGNING_PROPERTIES` to use a different private properties file (keys: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`). An unconfigured Gradle release is unsigned; the packaging script requires release signing and verifies the APK signature and alignment. It writes the APK, checksum, and public signature report into `dist`. Never commit the signing files or include them in a release.
+
+To run the instrumentation suite against that optimized release on an emulator:
+
+```sh
+cd android
+ANDROID_BROWSER_SIGNING_PROPERTIES="$HOME/.local/share/browser-android/release-signing.properties" \
+ANDROID_SERIAL=emulator-5580 ./gradlew -PtestRelease connectedReleaseAndroidTest
+```
+
+Android releases use separate `android-v*` tags. Publishing remains manual; Android CI runs unit tests, lint, and compiles the app/instrumentation APKs, while the existing macOS CI continues to test and package the Mac app.
 
 ## Download and install
 
