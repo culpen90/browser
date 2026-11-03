@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Engine Garden</title>
+<link rel="stylesheet" href="garden.css">
+</head><body>
+<h1>Engine Garden</h1>
+<p>A page to explore with our browser engine. Follow a link, resize the window, or scroll to the end.</p>
+<div class="card"><h2>Words, styles, and links</h2>
+<p>This sentence has <strong>bold words</strong>, <em>italic words</em>, and <code>monospace words</code>. Entities: &amp; &lt; &gt; &copy; &#x1F331;.</p>
+<p><a href="second.html">Visit the next page →</a> or <a href="#finish">jump to the finish</a>.</p></div>
+<h2>Lists</h2><ol><li>Fetch a document.</li><li>Build its tree.<ul><li>Read its styles.</li><li>Lay out the page.</li></ul></li><li>Paint the result.</li></ol>
+<h2>Images</h2><p><img src="pixel.png" width="120" height="72" alt="A green image"></p>
+<p><img src="missing.png" alt="A missing image with useful alternative text"></p>
+<h2>Preformatted text</h2><pre>let browser = Browser()
+    browser.open("a new beginning")
+    1 &lt; 2 &amp;&amp; 3 &gt; 2</pre>
+<h2>Reading flow</h2>
+<p>A browser starts with a document. The document contains elements and text. Styles describe how those elements should look, and layout turns them into positions on the page.</p>
+<p>Changing the window width makes the engine wrap these words onto new lines. The page remains a continuous document as you scroll.</p>
+<p>Links connect this document to another. The address bar shows where you are, and the back and forward buttons let you revisit the path you took.</p>
+<p>This is another paragraph to give the page room to scroll. A long address should wrap as well: https://example.com/a-very-long-path-with-enough-characters-to-wrap-across-a-narrow-window-and-still-remain-readable.</p>
+<hr><h2 id="finish">You reached the finish.</h2><p><a href="second.html">Continue to page two</a> · <a href="browser:home">Return home</a></p>
+<script>document.body.innerHTML = "SCRIPT MUST NOT EXECUTE";</script>
+</body></html>
