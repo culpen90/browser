@@ -54,6 +54,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         navigation.addItem(withTitle: "Stop Loading", action: #selector(BrowserWindowController.stopLoading(_:)), keyEquivalent: "\u{1b}").keyEquivalentModifierMask = []
         navigation.addItem(.separator())
         navigation.addItem(withTitle: "Home", action: #selector(BrowserWindowController.goHome(_:)), keyEquivalent: "H")
+        navigation.addItem(.separator())
+        navigation.addItem(withTitle: "Website Compatibility", action: #selector(BrowserWindowController.toggleCompatibility(_:)), keyEquivalent: "")
         add(navigation, to: main)
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")

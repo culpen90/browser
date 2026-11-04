@@ -61,9 +61,13 @@ public struct NavigationHistory {
 
     public mutating func push(_ url: URL) {
         guard current != url else { return }
-        if index + 1 < entries.count { entries.removeSubrange((index + 1)..<entries.count) }
+        discardForwardEntries()
         entries.append(url)
         index = entries.count - 1
+    }
+
+    public mutating func discardForwardEntries() {
+        if index + 1 < entries.count { entries.removeSubrange((index + 1)..<entries.count) }
     }
 
     public mutating func back() -> URL? {

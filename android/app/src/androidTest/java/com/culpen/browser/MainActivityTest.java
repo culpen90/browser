@@ -75,9 +75,23 @@ public class MainActivityTest {
         awaitText("Engine Garden");
         assertFalse(activity.getPageView().getTextContent().contains("SCRIPT MUST NOT EXECUTE"));
         tapLink("#finish"); awaitText("You reached the finish.");
-        instrumentation.runOnMainSync(() -> assertTrue(activity.getPageScroll().getScrollY() > 0));
+        // Page text becomes available during measure, before the posted anchor scroll.
+        // Observe the scroll itself rather than assuming layout and text finish together.
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        AtomicBoolean scrolled = new AtomicBoolean();
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.runOnMainSync(() -> scrolled.set(activity.getPageScroll().getScrollY() > 0));
+            if (scrolled.get()) break;
+            SystemClock.sleep(40);
+        }
+        instrumentation.runOnMainSync(() -> assertTrue("Anchor address=" + activity.getCurrentAddress()
+                + ", scroll=" + activity.getPageScroll().getScrollY() + ", pageHeight=" + activity.getPageView().getHeight()
+                + ", viewport=" + activity.getPageScroll().getHeight(), activity.getPageScroll().getScrollY() > 0));
         tapLink("second.html"); awaitText("Another page, another beginning.");
         press("Back"); awaitText("Engine Garden");
+        // Resubmitting the current URL must preserve its forward entry and mode metadata.
+        instrumentation.runOnMainSync(() -> activity.navigate(activity.getCurrentAddress()));
+        awaitText("Engine Garden");
         press("Forward"); awaitText("Another page, another beginning.");
         press("Home"); awaitText("A place to begin.");
     }

@@ -1,8 +1,12 @@
 # Browser
 
-A native browser foundation for macOS and Android with an independent HTML/CSS engine and no third-party runtime dependencies.
+A native browser for macOS and Android with an independent HTML/CSS engine and a website compatibility mode for Reddit.
 
-The engine parses HTML into a document tree, computes a supported subset of CSS, lays out blocks and inline text, and produces its own display list. AppKit draws that display list and supplies the native window and controls. Foundation supplies HTTP, HTTPS, file access, and TLS. There is no WebKit, Chromium, web view, or system HTML importer.
+The default engine parses HTML into a document tree, computes a supported subset of CSS, lays out blocks and inline text, and produces its own display list. AppKit draws that display list and supplies the native window and controls. Foundation supplies HTTP, HTTPS, file access, and TLS. This renderer uses no system HTML importer.
+
+Source builds automatically open Reddit in a full website compatibility view: WebKit on macOS and Android System WebView on Android. These platform engines provide JavaScript, modern layout, editable forms, media, and persistent website storage for Reddit's normal login and interactive pages. Links and authentication redirects stay in the same website session. Entering an unrelated address or opening Home returns to the independent engine. To switch the current network page manually, use **Navigate → Website Compatibility** on Mac, or **Use full website** in the Android menu. The published v0.1.0 downloads below predate this change.
+
+Compatibility sessions keep website cookies and storage on this device between launches. They do not share cookies with the independent engine or other installed browsers. Certificate validation stays enabled, and remote pages cannot navigate to local files or arbitrary app schemes. Some identity providers restrict embedded-browser sign-in; use a sign-in method Reddit offers in this browser. Website CAPTCHA or account verification may require you to complete it yourself.
 
 The macOS implementation remains in `Sources` and uses Swift/AppKit. The Android port lives in `android` and uses Java, native Android controls, Canvas drawing, and platform HTTP/TLS and image APIs. Both versions share the same early engine scope. The Mac build and its release remain available independently.
 
@@ -14,7 +18,7 @@ Open the downloaded APK and allow your browser or file manager to install apps i
 
 Android provides an address bar, Back/Forward, Home, Reload/Stop, scrolling, touch and keyboard links, TalkBack page text/link actions, and a menu for opening HTML/text files through Android's document picker or copying page text/address. The bundled sample page works offline. Chosen local documents currently support inline CSS and network resources; relative companion files are unavailable through the document picker.
 
-This is a production-signed package of the **early browser foundation**, with the same broad limits as the Mac app: no JavaScript, interactive forms, tabs, downloads, or complete CSS layout. Use it for simple text-and-link pages. History stays in memory and is restored across Activity recreation; cookies are in memory and reset when the Activity's loader is recreated. No analytics or account service is included.
+The published v0.1.0 APK is a production-signed package of the **early browser foundation**, with the same broad limits as the Mac release: no JavaScript, interactive forms, tabs, downloads, or complete CSS layout. Use that release for simple text-and-link pages. Source builds additionally include Reddit compatibility as described above. History stays in memory and is restored across Activity recreation; independent-engine cookies are in memory and reset when the Activity's loader is recreated. No analytics or browser account service is included.
 
 ### Build Android from source
 
@@ -74,6 +78,8 @@ shasum -a 256 -c SHA256SUMS.txt
 
 Requirements for source builds: macOS 13 or later and Xcode's Swift toolchain (Swift 6 or later).
 
+The macOS integration tests also require `python3` for a local HTTP fixture. They exercise JavaScript modules and shadow DOM, editable form submission, cookies and storage, sign-in popups, and navigation across the two rendering engines without using real account credentials.
+
 Clone the repository, build, and install the app locally:
 
 ```sh
@@ -115,6 +121,7 @@ For synced Documents folders, use the installed app or the ZIP: file-provider me
 
 ## Current foundation
 
+- Automatic Reddit compatibility with JavaScript, forms, persistent site storage, and native website navigation; the independent engine remains available for other pages.
 - Native address bar, Back, Forward, Home, Reload/Stop, menus, and load feedback.
 - HTTP/HTTPS documents, redirects, relative URLs, fragment links, local HTML/text files, and plain-text responses.
 - A custom tokenizer and tree builder, quoted attributes, common character references, raw-text handling, and recovery for several omitted end tags.
@@ -126,11 +133,11 @@ For synced Documents folders, use the installed app or the ZIP: file-provider me
 
 ## Engine boundaries
 
-This is the starting foundation for an independent engine. It does not yet implement JavaScript, interactive forms, tabs, downloads, persistent browsing data, full HTML tree-construction rules, or the full CSS box model. Flex/grid/table layout currently flows as blocks. Images use system image decoders; CSS image sizing and SVG document rendering are not implemented. External stylesheets use UTF-8, and CSS `@import`/media queries are not interpreted.
+The independent engine does not yet implement JavaScript, interactive forms, tabs, downloads, persistent browsing data, full HTML tree-construction rules, or the full CSS box model. Flex/grid/table layout currently flows as blocks. Images use system image decoders; CSS image sizing and SVG document rendering are not implemented. External stylesheets use UTF-8, and CSS `@import`/media queries are not interpreted. These limits apply to the custom renderer, rather than Reddit's platform compatibility view. Downloads and tab management are not provided by the app shell in either mode.
 
-Pages with server-rendered text and links are the current target. Sites that depend on JavaScript or advanced layout will need the next engine layers.
+Pages with server-rendered text and links remain the custom renderer's target. Use Website Compatibility for pages that require a full platform engine.
 
-Limits currently include 5 MB per document, 1 MB per external stylesheet, 8 MB per image resource, 16 style sources, 24 unique images, 80,000 parsed nodes, 256 levels of nesting, and 40,000 display items. Resources load in batches of four. The HTTP session keeps its cookies/cache in memory for the life of the app; browser history is also in memory.
+Custom-engine limits include 5 MB per document, 1 MB per external stylesheet, 8 MB per image resource, 16 style sources, 24 unique images, 80,000 parsed nodes, 256 levels of nesting, and 40,000 display items. Resources load in batches of four. Its HTTP session keeps cookies/cache in memory for the life of the app; browser history is also in memory. The platform view manages its own resource loading and persistent site data.
 
 ## Shortcuts
 
@@ -165,4 +172,5 @@ Then visit `http://127.0.0.1:8765/index.html`. The test suite covers parsing, th
 | `Sources/BrowserCore/Navigation.swift` | Address resolution and history |
 | `Sources/BrowserApp/PageCanvas.swift` | Layout, display list, drawing, hit testing, accessibility |
 | `Sources/BrowserApp/BrowserWindow.swift` | Native UI and navigation orchestration |
+| `Sources/BrowserApp/SiteSession.swift` | Full website compatibility, persistent WebKit sessions, forms, popups |
 | `Sources/BrowserApp/main.swift` | Application lifecycle and menus |

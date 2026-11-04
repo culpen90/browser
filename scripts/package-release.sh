@@ -24,8 +24,10 @@ the first launch, open System Settings > Privacy & Security > Open Anyway,
 then confirm Open. Only do this for the app you downloaded from our releases.
 Apple's instructions: https://support.apple.com/102445
 
-This is an early browser engine. JavaScript, interactive forms, tabs,
-downloads, and complete HTML/CSS support are not implemented yet.
+Reddit opens in Website Compatibility, which supports JavaScript and forms.
+Use Navigate > Website Compatibility to switch engines for other websites.
+The independent engine supports basic HTML and CSS. The app has no tabs
+or download manager.
 
 Source and releases: https://github.com/culpen90/browser
 EOF

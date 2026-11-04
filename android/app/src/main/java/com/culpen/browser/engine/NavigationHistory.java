@@ -21,6 +21,11 @@ public final class NavigationHistory {
     public List<URI> entries() { return Collections.unmodifiableList(entries); }
     public void push(URI uri) {
         if (uri == null || uri.equals(current())) return;
+        pushEntry(uri);
+    }
+    /** Native full-site history may contain distinct GET/POST entries with the same URL. */
+    public void pushEntry(URI uri) {
+        if (uri == null) return;
         while (entries.size() > index + 1) entries.remove(entries.size() - 1);
         entries.add(uri);
         index = entries.size() - 1;

@@ -1,5 +1,6 @@
 import AppKit
 import BrowserCore
+import WebKit
 
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate, NSMenuItemValidation {
@@ -20,6 +21,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var currentStatus = "Ready"
     private var visibleDocument: HTMLDocument?
     private var displayedURL: URL?
+    private(set) var compatibilitySession: SiteSession?
+    // The app history joins independent pages to full-site sessions. Within a session,
+    // WebKit owns history so POSTs, redirects, SPA state and back/forward caches survive.
+    private var websiteSessions: [Int: SiteSession] = [:]
+    private var popupControllers: [UUID: BrowserWindowController] = [:]
+    private var onClose: (() -> Void)?
 
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
@@ -105,25 +112,49 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     func start(at url: URL? = nil) { showWindow(nil); navigate(url ?? currentURL) }
     func windowDidResize(_ notification: Notification) { canvas.relayout() }
-    func windowWillClose(_ notification: Notification) { navigationTask?.cancel() }
+    func windowWillClose(_ notification: Notification) {
+        navigationTask?.cancel()
+        compatibilitySession = nil
+        for session in websiteSessions.values { session.stop() }
+        for popup in Array(popupControllers.values) { popup.close() }
+        onClose?()
+    }
     @objc func focusAddress(_ sender: Any?) { window?.makeFirstResponder(addressField); addressField.selectText(nil) }
+    func controlTextDidEndEditing(_ notification: Notification) {
+        // Let a Return-triggered submitAddress read the user's text first, then restore
+        // the actual address when an edit is abandoned or focus moves into the page.
+        Task { @MainActor [weak self] in
+            guard let self, self.addressField.currentEditor() == nil else { return }
+            self.addressField.stringValue = self.currentURL.absoluteString
+        }
+    }
     @objc private func submitAddress(_ sender: Any?) {
         guard let url = Address.resolve(addressField.stringValue) else {
             setStatus("Enter an HTTP, HTTPS, or local file address.")
             NSSound.beep(); return
         }
-        window?.makeFirstResponder(canvas)
         navigate(url)
+        window?.makeFirstResponder(compatibilitySession?.webView ?? canvas)
     }
-    @objc func goBack(_ sender: Any?) { if let url = history.back() { navigate(url, record: false) } }
-    @objc func goForward(_ sender: Any?) { if let url = history.forward() { navigate(url, record: false) } }
+    private var canGoBack: Bool { compatibilitySession?.webView.canGoBack == true || history.canGoBack }
+    private var canGoForward: Bool { compatibilitySession?.webView.canGoForward == true || history.canGoForward }
+    @objc func goBack(_ sender: Any?) {
+        if let session = compatibilitySession, session.webView.canGoBack { session.webView.goBack() }
+        else if let url = history.back() { navigate(url, record: false) }
+    }
+    @objc func goForward(_ sender: Any?) {
+        if let session = compatibilitySession, session.webView.canGoForward { session.webView.goForward() }
+        else if let url = history.forward() { navigate(url, record: false) }
+    }
     @objc func goHome(_ sender: Any?) { navigate(URL(string: "browser:home")!) }
     @objc func reload(_ sender: Any?) {
         if isLoading { stopLoading(sender) }
+        else if let session = compatibilitySession { session.reload() }
         else { navigate(currentURL, record: false) }
     }
     @objc func stopLoading(_ sender: Any?) {
         generation += 1; navigationTask?.cancel(); navigationTask = nil
+        if compatibilitySession?.isLoading == true { compatibilitySession?.stop() }
         setLoading(false); setStatus("Stopped")
     }
     @objc func openFile(_ sender: Any?) {
@@ -134,18 +165,58 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             if response == .OK, let url = panel.url { self?.navigate(url) }
         }
     }
-    @objc func copyPageText(_ sender: Any?) { canvas.copyPageText(sender) }
+    @objc func copyPageText(_ sender: Any?) {
+        guard let session = compatibilitySession else { canvas.copyPageText(sender); return }
+        session.webView.evaluateJavaScript("document.body.innerText") { value, _ in
+            guard let text = value as? String else { return }
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+    @objc func toggleCompatibility(_ sender: Any?) {
+        guard SiteSession.allowsNavigation(currentURL) else { return }
+        let enable = compatibilitySession == nil
+        if !enable { websiteSessions.removeValue(forKey: history.index) }
+        navigate(currentURL, record: false, compatibility: enable)
+    }
 
-    func navigate(_ url: URL, record: Bool = true) {
-        guard let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) || url.absoluteString == "browser:home" else {
+    func navigate(_ url: URL, record: Bool = true, compatibility: Bool? = nil) {
+        let restoringBlank = !record && url.absoluteString == "about:blank" && websiteSessions[history.index] != nil
+        guard let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) || url.absoluteString == "browser:home" || restoringBlank else {
             setStatus("This address type is not supported."); NSSound.beep(); return
         }
         generation += 1
         let requestID = generation
         navigationTask?.cancel()
+        // A Back/Forward action may already have moved the app history cursor.
+        // Detach before stop(), whose synchronous callback still describes the old page.
+        let previousSession = compatibilitySession
+        compatibilitySession = nil
+        previousSession?.setVisible(false)
+        previousSession?.webView.removeFromSuperview()
+        if previousSession?.isLoading == true { previousSession?.stop() }
         currentURL = url
-        if record { history.push(url) }
+        if record {
+            let oldEntries = history.entries
+            history.push(url)
+            if history.entries != oldEntries { websiteSessions = websiteSessions.filter { $0.key < history.index } }
+        }
         addressField.stringValue = url.absoluteString
+        let useWebsite = compatibility ?? (websiteSessions[history.index] != nil || SiteSession.requiresCompatibility(url))
+        if useWebsite, SiteSession.allowsNavigation(url) || restoringBlank {
+            if let session = websiteSessions[history.index] {
+                showCompatibility(session)
+                if record { session.reload() }
+            } else {
+                let session = SiteSession()
+                websiteSessions[history.index] = session
+                configure(session)
+                showCompatibility(session)
+                session.load(url)
+            }
+            return
+        }
+        scrollView.isHidden = false
+        if previousSession != nil, addressField.currentEditor() == nil { window?.makeFirstResponder(canvas) }
         updateButtons()
         if url.absoluteString == "browser:home" {
             setLoading(false)
@@ -163,6 +234,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
                 let page = try await self.loader.load(url)
                 try Task.checkCancellation()
                 guard self.generation == requestID else { return }
+                if compatibility != false, SiteSession.requiresCompatibility(page.url) {
+                    self.history.replaceCurrent(page.url)
+                    self.navigate(page.url, record: false, compatibility: true)
+                    return
+                }
                 let source = page.isPlainText ? "<html><head><title>\(Self.escape(page.url.lastPathComponent))</title></head><body><pre>\(Self.escape(page.html))</pre></body></html>" : page.html
                 let document = HTMLParser().parse(source)
                 let proposedBase = document.baseURL(relativeTo: page.url)
@@ -249,6 +325,64 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
 
+    private func configure(_ session: SiteSession) {
+        session.onChange = { [weak self] session in self?.websiteChanged(session) }
+        session.onNewHistoryEntry = { [weak self, weak session] in
+            guard let self, let session, self.compatibilitySession === session else { return }
+            self.history.discardForwardEntries()
+            self.websiteSessions = self.websiteSessions.filter { $0.key <= self.history.index }
+            self.updateButtons()
+        }
+        session.requestClose = { [weak self] in self?.close() }
+        session.createPopup = { [weak self] configuration, _ in
+            guard let self else { return nil }
+            let id = UUID()
+            let popup = BrowserWindowController()
+            self.popupControllers[id] = popup
+            popup.onClose = { [weak self] in self?.popupControllers.removeValue(forKey: id) }
+            let child = SiteSession(configuration: configuration)
+            popup.history.push(URL(string: "about:blank")!)
+            popup.currentURL = popup.history.current!
+            popup.addressField.stringValue = popup.currentURL.absoluteString
+            popup.websiteSessions[popup.history.index] = child
+            popup.configure(child)
+            popup.showCompatibility(child)
+            popup.showWindow(nil)
+            popup.window?.makeFirstResponder(child.webView)
+            return child.webView
+        }
+    }
+
+    private func showCompatibility(_ session: SiteSession) {
+        if compatibilitySession !== session { compatibilitySession?.webView.removeFromSuperview() }
+        compatibilitySession = session
+        session.setVisible(true)
+        scrollView.isHidden = true
+        if session.webView.superview == nil, let content = window?.contentView {
+            let view = session.webView
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: scrollView.topAnchor), view.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+                view.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor), view.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor)
+            ])
+        }
+        if window?.firstResponder === canvas { window?.makeFirstResponder(session.webView) }
+        websiteChanged(session)
+    }
+
+    private func websiteChanged(_ session: SiteSession) {
+        guard compatibilitySession === session else { return }
+        if let url = session.webView.backForwardList.currentItem?.url,
+           SiteSession.allowsNavigation(url) || url.absoluteString == "about:blank" {
+            currentURL = url; history.replaceCurrent(url)
+            if window?.firstResponder !== addressField.currentEditor() { addressField.stringValue = url.absoluteString }
+        }
+        window?.title = session.title.isEmpty ? "Browser" : "\(session.title) — Browser"
+        setLoading(session.isLoading)
+        setStatus("\(session.status) · Compatibility")
+    }
+
     static func resourceAllowed(_ resource: URL, from page: URL) -> Bool {
         if ["http", "https"].contains(resource.scheme?.lowercased() ?? "") { return true }
         return page.isFileURL && resource.isFileURL
@@ -267,10 +401,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         reloadButton.setAccessibilityLabel(loading ? "Stop" : "Reload")
         updateButtons()
     }
-    private func updateButtons() { backButton.isEnabled = history.canGoBack; forwardButton.isEnabled = history.canGoForward }
+    private func updateButtons() { backButton.isEnabled = canGoBack; forwardButton.isEnabled = canGoForward }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(goBack(_:)) { return history.canGoBack }
-        if menuItem.action == #selector(goForward(_:)) { return history.canGoForward }
+        if menuItem.action == #selector(goBack(_:)) { return canGoBack }
+        if menuItem.action == #selector(goForward(_:)) { return canGoForward }
+        if menuItem.action == #selector(toggleCompatibility(_:)) {
+            menuItem.state = compatibilitySession == nil ? .off : .on
+            return SiteSession.allowsNavigation(currentURL)
+        }
         if menuItem.action == #selector(stopLoading(_:)) { return isLoading }
         return true
     }
@@ -290,6 +428,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     <p>Enter an address above and explore the web.</p>
     <h2>EXPLORE</h2>
     <ul><li><a href="https://example.com">Example Domain</a></li>
+    <li><a href="https://www.reddit.com/">Reddit</a></li>
     <li><a href="https://info.cern.ch/hypertext/WWW/TheProject.html">The World Wide Web project</a></li>
     <li><a href="https://www.rfc-editor.org/rfc/rfc9110.txt">Read an internet standard</a></li></ul>
     <h2>MAKE YOURSELF AT HOME</h2>
