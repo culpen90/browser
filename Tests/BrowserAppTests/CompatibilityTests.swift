@@ -6,6 +6,78 @@ import XCTest
 
 final class BrowserAgentIntegrationTests: XCTestCase {
     @MainActor
+    func testGreetingsNeverReadPlanOrActOnHomeOrALinkPage() async throws {
+        let server = try CompatibilityFixtureServer()
+        defer { server.stop() }
+        _ = NSApplication.shared
+        let browser = BrowserWindowController()
+        defer { browser.close() }
+        let agent = BrowserAgentController(window: browser) { _, _, _, _, _ in
+            XCTFail("A greeting must not invoke the model or planner")
+            return "SEARCH Reddit"
+        }
+        for url in [browser.currentURL, server.url("/agent-start")] {
+            browser.navigate(url)
+            _ = try await browser.observeForAgent()
+            let startingURL = browser.currentURL
+            for task in ["hola", "  ¡HOLA!\n", "Hello!", "How are you?", "Gracias", "What can you do?"] {
+                var activity: [String] = []
+                let result = try await agent.run(task, modelURL: URL(fileURLWithPath: "/missing.gguf"),
+                                                 onActivity: { activity.append($0) },
+                                                 approve: { _ in XCTFail("A greeting must not request an action"); return true })
+                XCTAssertFalse(result.isEmpty)
+                if task.lowercased().contains("hola") { XCTAssertEqual(result, "¡Hola! ¿En qué puedo ayudarte?") }
+                XCTAssertTrue(activity.isEmpty, "Unexpected activity for \(task): \(activity)")
+                XCTAssertEqual(browser.currentURL, startingURL)
+            }
+        }
+    }
+
+    @MainActor
+    func testUnclearInputCannotEnterTheBrowserPlannerOnHomeOrALinkPage() async throws {
+        let server = try CompatibilityFixtureServer()
+        defer { server.stop() }
+        _ = NSApplication.shared
+        let browser = BrowserWindowController()
+        defer { browser.close() }
+        var calls = 0
+        let agent = BrowserAgentController(window: browser) { _, system, _, _, format in
+            calls += 1
+            XCTAssertNil(format, "Unclear input must receive an answer without browser commands")
+            XCTAssertTrue(system.contains("ask what the user wants"))
+            return "What would you like me to do?"
+        }
+        for url in [URL(string: "browser:home")!, server.url("/agent-start")] {
+            browser.navigate(url)
+            let answer = try await agent.run("hmm", modelURL: URL(fileURLWithPath: "/unused.gguf"),
+                                             onActivity: { _ in },
+                                             approve: { _ in XCTFail("Unclear input must not request an action"); return true })
+            XCTAssertEqual(answer, "What would you like me to do?")
+            XCTAssertEqual(browser.currentURL, url)
+        }
+        XCTAssertEqual(calls, 2)
+    }
+
+    @MainActor
+    func testImplicitPageQuestionCanStillFollowARelevantLink() async throws {
+        let server = try CompatibilityFixtureServer()
+        defer { server.stop() }
+        _ = NSApplication.shared
+        let browser = BrowserWindowController()
+        defer { browser.close() }
+        browser.navigate(server.url("/agent-live"))
+        let agent = BrowserAgentController(window: browser) { _, _, observation, _, format in
+            if format == nil { return "The museum opens at 10 AM." }
+            return observation.contains("Museum home") ? "CLICK 1" : "ANSWER"
+        }
+        let result = try await agent.run("When does the museum open?", modelURL: URL(fileURLWithPath: "/unused.gguf"),
+                                         onActivity: { _ in },
+                                         approve: { _ in XCTFail("An ordinary link required approval"); return false })
+        XCTAssertEqual(browser.currentURL.path, "/agent-live-details")
+        XCTAssertTrue(result.contains("10 AM"))
+    }
+
+    @MainActor
     func testAgentFollowsALinkAndAnswersFromTheDestination() async throws {
         let server = try CompatibilityFixtureServer()
         defer { server.stop() }
@@ -25,7 +97,7 @@ final class BrowserAgentIntegrationTests: XCTestCase {
             XCTAssertTrue(observation.contains("Second page"))
             return "The destination is the second fixture page."
         }
-        let result = try await agent.run("Open the link and tell me where it leads.",
+        let result = try await agent.run("Hello, open the link and tell me where it leads.",
                                          modelURL: URL(fileURLWithPath: "/unused.gguf"),
                                          onActivity: { _ in },
                                          approve: { _ in XCTFail("An ordinary link required approval"); return false })

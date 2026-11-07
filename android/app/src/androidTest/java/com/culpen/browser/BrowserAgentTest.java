@@ -25,6 +25,28 @@ import static org.junit.Assert.*;
 public class BrowserAgentTest {
     private final android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
 
+    @Test public void greetingCompletesWithoutPCPairingOrNavigation() throws Exception {
+        MainActivity activity = launch();
+        try {
+            final URI[] address = new URI[1];
+            instrumentation.runOnMainSync(() -> {
+                activity.getAgentPanel().show();
+                address[0] = activity.getCurrentAddress();
+            });
+            press(activity, "Disconnect PC");
+            instrumentation.runOnMainSync(() -> {
+                EditText task = (EditText) find(activity.getWindow().getDecorView(), "Agent task");
+                task.setText("¡Hola!");
+            });
+            press(activity, "Run agent");
+            instrumentation.runOnMainSync(() -> {
+                assertTrue(activity.getAgentPanel().logText().contains("¡Hola!"));
+                assertFalse(activity.getAgentPanel().logText().contains("Step "));
+                assertEquals(address[0], activity.getCurrentAddress());
+            });
+        } finally { instrumentation.runOnMainSync(activity::finish); }
+    }
+
     @Test public void websiteControlsRequireReviewAndRejectChangedFormSubmission() throws Exception {
         org.junit.Assume.assumeNotNull(android.webkit.WebView.getCurrentWebViewPackage());
         try (ServerSocket server = new ServerSocket(0)) {

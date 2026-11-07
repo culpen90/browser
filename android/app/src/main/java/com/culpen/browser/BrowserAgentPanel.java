@@ -159,9 +159,16 @@ final class BrowserAgentPanel extends LinearLayout {
 
     private void runTask() {
         if (running != null) return;
-        if (connection == null) { showPairingInput(); return; }
         String instruction = task.getText().toString().trim();
         if (instruction.isEmpty()) { task.setError("Enter a browsing task"); return; }
+        if (instruction.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1600) {
+            task.setError("Enter a task up to 1,600 bytes"); return;
+        }
+        String directReply = MobileBrowserAgent.directReply(instruction);
+        if (directReply != null) {
+            hideKeyboard(); log.setText(directReply); state.setText("Complete"); return;
+        }
+        if (connection == null) { showPairingInput(); return; }
         hideKeyboard();
         log.setText(""); state.setText("Running on PC…");
         int id = ++runID;

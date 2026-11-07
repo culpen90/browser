@@ -267,8 +267,9 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
     }
 
     private func updateControls() {
-        runButton.isEnabled = !running && downloadTask == nil && modelIsAvailable &&
-            !taskView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let task = taskView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        runButton.isEnabled = !running && downloadTask == nil && !task.isEmpty &&
+            (modelIsAvailable || BrowserAgentTask(task).directReply != nil)
         stopButton.isEnabled = running && !stopping
         taskView.isEditable = !running
         let canChooseModel = !running && downloadTask == nil
