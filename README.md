@@ -1,10 +1,10 @@
 # Browser
 
-A native browser for macOS and Android with an independent HTML/CSS engine and a website compatibility mode for Reddit.
+A native browser for macOS and Android with an independent HTML/CSS engine, a website compatibility mode for Reddit, and an AI Agent side panel.
 
 The default engine parses HTML into a document tree, computes a supported subset of CSS, lays out blocks and inline text, and produces its own display list. AppKit draws that display list and supplies the native window and controls. Foundation supplies HTTP, HTTPS, file access, and TLS. This renderer uses no system HTML importer.
 
-Source builds automatically open Reddit in a full website compatibility view: WebKit on macOS and Android System WebView on Android. These platform engines provide JavaScript, modern layout, editable forms, media, and persistent website storage for Reddit's normal login and interactive pages. Links and authentication redirects stay in the same website session. Entering an unrelated address or opening Home returns to the independent engine. To switch the current network page manually, use **Navigate → Website Compatibility** on Mac, or **Use full website** in the Android menu. The published v0.1.0 downloads below predate this change.
+Browser automatically opens Reddit in a full website compatibility view: WebKit on macOS and Android System WebView on Android. These platform engines provide JavaScript, modern layout, editable forms, media, and persistent website storage for Reddit's normal login and interactive pages. Links and authentication redirects stay in the same website session. Entering an unrelated address or opening Home returns to the independent engine. To switch the current network page manually, use **Navigate → Website Compatibility** on Mac, or **Use full website** in the Android menu.
 
 Compatibility sessions keep website cookies and storage on this device between launches. They do not share cookies with the independent engine or other installed browsers. Certificate validation stays enabled, and remote pages cannot navigate to local files or arbitrary app schemes. Some identity providers restrict embedded-browser sign-in; use a sign-in method Reddit offers in this browser. Website CAPTCHA or account verification may require you to complete it yourself.
 
@@ -28,13 +28,13 @@ Pairing connects the Android browser's agent to the model running on your Mac. T
 
 ## Android download and install
 
-[Download Browser for Android v0.1.0](https://github.com/culpen90/browser/releases/tag/android-v0.1.0). Choose **`Browser-0.1.0-Android.apk`**. Requires **Android 8.0 (API 26) or later**; one APK supports phones and tablets across CPU architectures. It is a signed, optimized release build with debugging disabled.
+[Download Browser for Android v0.2.0](https://github.com/culpen90/browser/releases/tag/v0.2.0). Choose **`Browser-0.2.0-Android.apk`**. Requires **Android 8.0 (API 26) or later**; one APK supports phones and tablets across CPU architectures. It is a signed, optimized release build with debugging disabled.
 
 Open the downloaded APK and allow your browser or file manager to install apps if Android asks. Future APK updates must be signed with the same release key. The release includes `Android-SHA256SUMS.txt` and the public signing-certificate fingerprint in `Android-signature.txt`.
 
 Android provides an address bar, Back/Forward, Home, Reload/Stop, scrolling, touch and keyboard links, TalkBack page text/link actions, and a menu for opening HTML/text files through Android's document picker or copying page text/address. The bundled sample page works offline. Chosen local documents currently support inline CSS and network resources; relative companion files are unavailable through the document picker.
 
-The published v0.1.0 APK is a production-signed package of the **early browser foundation**, with the same broad limits as the Mac release: no JavaScript, interactive forms, tabs, downloads, or complete CSS layout. Use that release for simple text-and-link pages. Source builds additionally include Reddit compatibility as described above. History stays in memory and is restored across Activity recreation; independent-engine cookies are in memory and reset when the Activity's loader is recreated. No analytics or browser account service is included.
+Version 0.2.0 includes Reddit compatibility and an AI panel that pairs with the Mac's model, as described above. Website Compatibility requires an installed Android System WebView provider. History stays in memory and is restored across Activity recreation; independent-engine cookies are in memory and reset when the Activity's loader is recreated. No analytics or browser account service is included.
 
 ### Build Android from source
 
@@ -70,19 +70,19 @@ ANDROID_BROWSER_SIGNING_PROPERTIES="$HOME/.local/share/browser-android/release-s
 ANDROID_SERIAL=emulator-5580 ./gradlew -PtestRelease connectedReleaseAndroidTest
 ```
 
-Android releases use separate `android-v*` tags. Publishing remains manual; Android CI runs unit tests, lint, and compiles the app/instrumentation APKs, while the existing macOS CI continues to test and package the Mac app.
+Version 0.2.0 includes both Android and macOS downloads under the shared `v0.2.0` release tag. Publishing remains manual; Android CI runs unit tests, lint, and compiles the app/instrumentation APKs, while macOS CI tests and packages the Mac app.
 
 ## Download and install
 
-[Download Browser v0.1.0 for macOS](https://github.com/culpen90/browser/releases/tag/v0.1.0). The release includes a real `Browser.app` for macOS 13 or later, with both Apple silicon and Intel support. Xcode and a developer account are not required to run it.
+[Download Browser v0.2.0 for macOS](https://github.com/culpen90/browser/releases/tag/v0.2.0). The release includes a real `Browser.app` for macOS 13 or later, with both Apple silicon and Intel support. Xcode and a developer account are not required to run it.
 
-1. Download `Browser-0.1.0-macOS-universal.dmg`, open it, and drag `Browser.app` to Applications. Alternatively, download and extract `Browser-0.1.0-macOS-universal.zip`, then move `Browser.app` to Applications.
+1. Download `Browser-0.2.0-macOS-universal.dmg`, open it, and drag `Browser.app` to Applications. Alternatively, download and extract `Browser-0.2.0-macOS-universal.zip`, then move `Browser.app` to Applications.
 2. Open Browser from Applications.
 3. If macOS blocks the first launch because it cannot verify the developer, open **System Settings → Privacy & Security**, click **Open Anyway** for Browser, and confirm **Open**. See [Apple's first-launch instructions](https://support.apple.com/102445).
 
 This release is ad-hoc signed and is not notarized by Apple. It does not use a paid Apple Developer membership. Ad-hoc signing checks the bundle's integrity but does not establish a verified developer identity.
 
-This is an early engine foundation. Text and links on simple pages are the current target; JavaScript, interactive forms, and tabs are not implemented. Read the [engine boundaries](#engine-boundaries) before relying on it for everyday browsing.
+The independent engine targets text and links on simple pages. Website Compatibility supplies JavaScript and interactive forms for sites that need them. Tabs and a download manager are not implemented. Read the [engine boundaries](#engine-boundaries) for supported behavior.
 
 The release provides `SHA256SUMS.txt` to check the downloaded packages. With both the DMG and ZIP beside that file, run:
 
@@ -165,6 +165,7 @@ Custom-engine limits include 5 MB per document, 1 MB per external stylesheet, 8 
 | Reload | ⌘R |
 | Stop | Esc |
 | Home | ⇧⌘H |
+| Open / Close AI Agent | ⇧⌘A |
 | Focus a page link / Follow | Tab / Return |
 | Scroll page | Arrows, Page Up/Down, Space |
 

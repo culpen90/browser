@@ -1,39 +1,31 @@
-# Browser for Android v0.1.0
+# Browser for Android v0.2.0
 
-The first Android release of Browser brings the independent HTML/CSS engine to native Android controls and Canvas drawing. The existing macOS app and its v0.1.0 release remain available separately.
+The Android APK is included alongside the Mac app in the [Browser v0.2.0 release](https://github.com/culpen90/browser/releases/tag/v0.2.0).
 
 ## Install
 
-Requires **Android 8.0 (API 26) or later**. Download **`Browser-0.1.0-Android.apk`**, open it, and allow installation from your browser or file manager if prompted. The universal APK works across CPU architectures.
+Requires **Android 8.0 (API 26) or later**. Download **Browser-0.2.0-Android.apk**, open it, and allow installation from your browser or file manager if prompted. It updates the previous production release using the same signing certificate. Version code is 2 and debugging is disabled.
 
-This is an optimized, production-signed release APK with debugging disabled. The stable release identity is used for future updates; no debug key is used. `Android-SHA256SUMS.txt` verifies the download, and `Android-signature.txt` reports the public signing certificate. Certificate SHA-256:
+The release includes **Android-SHA256SUMS.txt** and **Android-signature.txt**. The production certificate SHA-256 fingerprint is
 
 ```text
 d0e2ce47b1e6492ab974a35f7de0a9c61c1b14e45a88ddf84e110f649ca7da2e
 ```
 
-## Included
+## What's new
 
-- Native address entry, Back/Forward, Android back navigation, Home, Reload/Stop, and load feedback.
-- HTTP/HTTPS, redirects, relative links, fragment anchors, and HTML/text documents opened through Android's document picker.
-- Independent HTML parsing, CSS cascade and selectors, block/inline layout, wrapping, lists, images, preformatted text, and colors.
-- Touch and keyboard links, TalkBack page text/link actions, text/address copying, scrolling, and width reflow.
-- Offline sample pages, bounded network/parser/rendering work, cancellation, and in-memory history and cookies.
-- Separate debug/release application IDs and documented signing/build commands. The private signing identity stays outside the repository.
+- An **AI** toolbar button opens the agent side panel. Close it with **×** and reopen it to return to the task and results.
+- QR and pairing links connect the agent to the local model running in Browser on your Mac. Open **AI → Connect PC** to paste a link, or scan the Mac's QR code with the phone camera.
+- Encrypted model requests and responses, saved pairing, activity/results, website-action review, and Stop.
+- The phone can read pages, follow links, navigate, scroll, and operate reviewed website controls while the Mac performs inference.
+- Reddit uses Website Compatibility for JavaScript, forms, media, and persistent website storage. An installed Android System WebView provider is required for this mode.
 
-## Engine scope
+## Connect the Mac's model
 
-This production-signed package contains the same **early engine foundation** as the macOS app. It targets simple pages with server-rendered text and links. JavaScript, interactive forms, tabs, downloads, full HTML/CSS behavior, and persistent browsing data are not implemented. Flex, grid, and tables flow as blocks. Websites that depend on those features will be incomplete.
+Keep both devices on the same Wi-Fi or local network. In the Mac's agent panel, choose **Model → Connect Phone… → Start Sharing**. Pair the Android browser and keep desktop Browser open while running tasks. **Stop Sharing** ends the session; a new sharing session has a new pairing link.
 
-Chosen local files support inline styles and network resources. Relative companion files are unavailable through the document picker. History survives Activity recreation; cookies reset when its loader is recreated. Large pages may show a display-limit notice when bounded rendering work is exhausted.
+## Validation and scope
 
-There is no WebView, Chromium, WebKit, system HTML importer, analytics, or third-party runtime dependency.
+Debug and release unit tests passed, 37 each, along with lint, release shrinking, signature, and alignment checks. Android 16 emulator testing covered native and website agent controls and real model-selected navigation through the Mac. Android 8 native panel tests passed; its website-control tests were skipped because the emulator had no WebView provider. An existing rendering timing test passed on an isolated rerun after build and emulator startup load stopped.
 
-## Verification
-
-- 32 Android unit tests passed for both debug and release configurations; debug and release lint passed.
-- All 10 instrumentation tests passed against the optimized signed release APK on **Android 8.0/API 26** and **Android 16/API 36** emulators. Tests cover navigation/history/restoration, relative and fragment links, HTTP loading and cancellation, error recovery, reflow, images/colors, accessibility actions, and rendering work limits.
-- The existing 27 macOS tests passed. No macOS application source or packaging scripts were changed.
-- APK signature and ZIP alignment were verified. Testing used emulators only.
-
-See the [README](https://github.com/culpen90/browser#readme) for installation and source builds. Android uses `android-v*` release tags independently of macOS.
+The independent engine supports a subset of HTML/CSS. Tabs and a download manager are outside the current scope. The agent uses a 2,048-token context and a ten-step task limit.
