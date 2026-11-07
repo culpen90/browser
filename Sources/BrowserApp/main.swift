@@ -57,6 +57,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         navigation.addItem(.separator())
         navigation.addItem(withTitle: "Website Compatibility", action: #selector(BrowserWindowController.toggleCompatibility(_:)), keyEquivalent: "")
         add(navigation, to: main)
+        let view = NSMenu(title: "View")
+        view.addItem(withTitle: "AI Agent", action: #selector(BrowserWindowController.toggleAgentSidebar(_:)), keyEquivalent: "a").keyEquivalentModifierMask = [.command, .shift]
+        add(view, to: main)
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")

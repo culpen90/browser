@@ -10,6 +10,22 @@ Compatibility sessions keep website cookies and storage on this device between l
 
 The macOS implementation remains in `Sources` and uses Swift/AppKit. The Android port lives in `android` and uses Java, native Android controls, Canvas drawing, and platform HTTP/TLS and image APIs. Both versions share the same early engine scope. The Mac build and its release remain available independently.
 
+## AI Agent on macOS
+
+Click **AI Agent** in Browser's toolbar to open its side panel. Close it with the panel's **×** button, click **AI Agent** again, or use **View → AI Agent** (⇧⌘A). Your task and results stay in the panel when you reopen it.
+
+Select **Download Model** to install the default [Qwen2.5 0.5B Instruct checkpoint from Hugging Face](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF) (429 MB), or use **Model → Choose Model…** to select a compatible local Qwen2 or Qwen2.5 Instruct GGUF. The loader supports Q4_0, Q8_0, Q6_K, and floating-point tensors. Browser verifies the default download against a pinned SHA-256 hash and keeps the file in `~/Library/Application Support/Browser/Models`.
+
+Open a page and describe what you want, for example `Follow the About link and tell me when the museum opens`. The agent can read page text, follow links, navigate, scroll, go back, and turn on Website Compatibility. Review and confirm proposed searches, new addresses that were not in the task, and interactive website controls. The activity log shows each step and the final answer. Use **Stop** to cancel the run.
+
+Browser's own inference engine implements GGUF loading, byte-level BPE, and the Qwen2 transformer in Swift and C. It uses Accelerate for matrix operations and runs in the browser process. Hugging Face supplies the model file; the task and page text go to the local model. The agent has a 2,048-token context and a ten-step limit. On long or dense pages, scroll closer to the relevant section or give the agent a more specific task. Website Compatibility currently exposes elements in the main document; some sites require manual interaction.
+
+### Use the Mac's model from Android
+
+Connect your Mac and phone to the same Wi-Fi. In the Mac's AI Agent panel, choose **Model → Connect Phone… → Start Sharing**. Scan the QR code with your phone's camera and open it in Browser, or open **AI → Connect PC** in the Android browser and paste the pairing link. Keep desktop Browser open while using the phone's agent. **Stop Sharing** disconnects the phone, and starting sharing again creates a new pairing link.
+
+Pairing connects the Android browser's agent to the model running on your Mac. The phone sends task and page observations in authenticated encrypted messages, and carries out the resulting browser actions on the phone. The pairing link grants access to this model session. Sharing starts only when you enable it and ends when Browser quits.
+
 ## Android download and install
 
 [Download Browser for Android v0.1.0](https://github.com/culpen90/browser/releases/tag/android-v0.1.0). Choose **`Browser-0.1.0-Android.apk`**. Requires **Android 8.0 (API 26) or later**; one APK supports phones and tablets across CPU architectures. It is a signed, optimized release build with debugging disabled.

@@ -4,6 +4,68 @@ import WebKit
 import XCTest
 @testable import BrowserApp
 
+final class BrowserAgentIntegrationTests: XCTestCase {
+    @MainActor
+    func testAgentFollowsALinkAndAnswersFromTheDestination() async throws {
+        let server = try CompatibilityFixtureServer()
+        defer { server.stop() }
+        _ = NSApplication.shared
+        let browser = BrowserWindowController()
+        defer { browser.close() }
+        browser.navigate(server.url("/agent-start"))
+
+        var steps = 0
+        let agent = BrowserAgentController(window: browser) { _, _, observation, _, format in
+            steps += 1
+            if steps == 1 {
+                XCTAssertTrue(observation.contains("Read second fixture"))
+                return "CLICK 1"
+            }
+            XCTAssertNil(format)
+            XCTAssertTrue(observation.contains("Second page"))
+            return "The destination is the second fixture page."
+        }
+        let result = try await agent.run("Open the link and tell me where it leads.",
+                                         modelURL: URL(fileURLWithPath: "/unused.gguf"),
+                                         onActivity: { _ in },
+                                         approve: { _ in XCTFail("An ordinary link required approval"); return false })
+        XCTAssertEqual(steps, 2)
+        XCTAssertEqual(browser.currentURL.path, "/second")
+        XCTAssertEqual(result, "The destination is the second fixture page.")
+    }
+
+    @MainActor
+    func testDecliningAWebsiteButtonKeepsThePageUnchanged() async throws {
+        let server = try CompatibilityFixtureServer()
+        defer { server.stop() }
+        _ = NSApplication.shared
+        let browser = BrowserWindowController()
+        defer { browser.close() }
+        browser.navigate(server.url("/agent-review"), compatibility: true)
+
+        var steps = 0
+        var reviews: [String] = []
+        let agent = BrowserAgentController(window: browser) { _, _, observation, _, format in
+            steps += 1
+            XCTAssertTrue(observation.contains("Update fixture"))
+            XCTAssertTrue(observation.contains("Awaiting update"))
+            if format == nil { return "The update was skipped." }
+            return steps == 1 ? "CLICK 1" : "ANSWER"
+        }
+        let result = try await agent.run("Update this page.",
+                                         modelURL: URL(fileURLWithPath: "/unused.gguf"),
+                                         onActivity: { _ in },
+                                         approve: { reviews.append($0); return false })
+        XCTAssertEqual(steps, 3)
+        XCTAssertEqual(reviews.count, 1)
+        XCTAssertTrue(reviews.first?.contains("Update fixture") == true)
+        XCTAssertEqual(result, "The update was skipped.")
+        let session = try XCTUnwrap(browser.compatibilitySession)
+        let status = try await session.webView.evaluateJavaScript("document.querySelector('#status').textContent") as? String
+        XCTAssertEqual(status, "Awaiting update")
+    }
+}
+
 final class CompatibilityTests: XCTestCase {
     @MainActor
     func testRedditRoutingAndNavigationBoundaries() {
@@ -329,7 +391,7 @@ private func persistentFixtureSession(_ identifier: UUID) -> MountedSiteSession 
     }
 }
 
-private final class CompatibilityFixtureServer {
+final class CompatibilityFixtureServer {
     private let process: Process
     private let output: Pipe
     private let errors: Pipe
@@ -407,6 +469,17 @@ private final class CompatibilityFixtureServer {
                 self.reply('<!doctype html><title>Signed in fixture</title><body><p id="credentials">credentials-ok</p><p id="cookie">' + self.cookie_result() + '</p><a id="next" href="/second">Next page</a></body>')
             elif path == '/second':
                 self.reply('<!doctype html><title>Second fixture page</title><body>Second page</body>')
+            elif path == '/agent-start':
+                self.reply('<!doctype html><title>Agent fixture</title><body><a href="/second">Read second fixture</a></body>')
+            elif path == '/agent-live':
+                self.reply('<!doctype html><title>Museum home</title><body><a href="/agent-live-details">Museum details</a></body>')
+            elif path == '/agent-live-details':
+                self.reply('<!doctype html><title>Museum details</title><body>The museum opens at 10 AM.</body>')
+            elif path == '/agent-review':
+                self.reply('''<!doctype html><title>Agent review</title><body>
+                  <p id="status">Awaiting update</p>
+                  <button onclick="document.querySelector('#status').textContent = 'Updated'">Update fixture</button>
+                </body>''')
             elif path == '/branch':
                 self.reply('<!doctype html><title>Branch fixture page</title><body>New branch</body>')
             elif path == '/slow':

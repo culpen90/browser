@@ -20,5 +20,6 @@
     <key>NSDesktopFolderUsageDescription</key><string>Open local web pages and their linked files when you choose an address on the Desktop.</string>
     <key>NSDownloadsFolderUsageDescription</key><string>Open local web pages and their linked files when you choose an address in Downloads.</string>
     <key>NSFileProviderDomainUsageDescription</key><string>Open web pages and linked files that you select in a synced folder.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Let your paired phone use the AI model running in Browser on this Mac.</string>
     <key>NSHumanReadableCopyright</key><string>Browser foundation</string>
 </dict></plist>

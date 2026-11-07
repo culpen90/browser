@@ -39,19 +39,66 @@ final class PageCanvas: NSView {
     private var lastWidth: CGFloat = 0
     private var focusedLink: Int?
     private var accessibilityElements: [NSAccessibilityElement] = []
-    var textContent: String {
+    var textContent: String { renderedText() }
+
+    func renderedText(startingAt top: CGFloat = -.infinity, maxCharacters: Int = .max) -> String {
         var text = ""
         var previous: NSRect?
         for item in pageLayout.items {
-            guard case .text(let value, let rect, _) = item else { continue }
+            guard case .text(let value, let rect, _) = item, rect.maxY >= top else { continue }
             if let previous {
                 if abs(previous.minY - rect.minY) > 1 { text += "\n" }
                 else if rect.minX - previous.maxX > 0.5 { text += " " }
             }
             text += value.string
+            if maxCharacters < .max, text.count >= maxCharacters { return String(text.prefix(maxCharacters)) }
             previous = rect
         }
         return text
+    }
+
+    func agentLinks() -> [BrowserAgentElement] {
+        var links: [(url: URL, label: String, rect: NSRect)] = []
+        var previousURL: URL?
+        for item in pageLayout.items {
+            guard let url = item.link, SiteSession.allowsNavigation(url), url.absoluteString.count <= 4096 else {
+                if case .text = item { previousURL = nil }
+                continue
+            }
+            let label: String
+            if case .text(let text, _, _) = item { label = text.string }
+            else { label = "" }
+            if let last = links.indices.last, previousURL == url {
+                if links[last].label.count < 160, !label.isEmpty {
+                    let needsSpace = abs(item.rect.minY - links[last].rect.minY) > 1
+                        || item.rect.minX - links[last].rect.maxX > 0.5
+                    links[last].label += (needsSpace && !links[last].label.isEmpty ? " " : "") + String(label.prefix(160))
+                }
+                links[last].rect = links[last].rect.union(item.rect)
+            } else {
+                links.append((url, String(label.prefix(160)), item.rect))
+            }
+            previousURL = url
+        }
+        let viewport = visibleRect
+        func distance(_ rect: NSRect) -> CGFloat {
+            max(0, viewport.minY - rect.maxY, rect.minY - viewport.maxY)
+        }
+        var seen = Set<URL>()
+        return links.sorted { distance($0.rect) < distance($1.rect) }
+            .filter { seen.insert($0.url).inserted }.prefix(64).enumerated()
+            .map { index, link in
+                BrowserAgentElement(id: index + 1, kind: .link,
+                                    label: link.label.isEmpty ? link.url.absoluteString : String(link.label.prefix(160)),
+                                    url: link.url.absoluteString)
+            }
+    }
+
+    func agentScroll(pages: Int) {
+        let viewport = visibleRect
+        let destination = viewport.minY + CGFloat(pages) * viewport.height * 0.85
+        let offset = max(0, min(bounds.height - viewport.height, destination))
+        scroll(NSPoint(x: viewport.minX, y: offset))
     }
 
     override init(frame frameRect: NSRect) {

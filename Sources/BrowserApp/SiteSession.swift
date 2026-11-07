@@ -14,6 +14,7 @@ final class SiteSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var stopped = false
     private var knownHistoryItems = Set<ObjectIdentifier>()
     private var hasHistoryItem = false
+    private(set) var navigationRevision = 0
 
     var url: URL? { webView.url }
     var title: String { webView.title ?? "" }
@@ -28,7 +29,7 @@ final class SiteSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         let suppliedConfiguration = configuration
         let configuration = configuration ?? WKWebViewConfiguration()
         // Keep Reddit's own cookies/storage between launches. Never export them to the
-        // independent engine, inject a native bridge, or replace the platform user agent.
+        // independent engine, expose a native bridge to web content, or replace the platform user agent.
         if suppliedConfiguration == nil { configuration.websiteDataStore = .default() }
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -95,6 +96,7 @@ final class SiteSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        navigationRevision += 1
         failure = nil; stopped = false; changed()
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { changed() }
@@ -106,6 +108,7 @@ final class SiteSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         failure = error.localizedDescription; changed()
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        navigationRevision += 1
         failure = "The website stopped responding. Press Reload to reopen it."; changed()
     }
 
