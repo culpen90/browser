@@ -54,6 +54,12 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.CompletableFuture;
+import android.os.Handler;
+import android.os.Looper;
+import org.json.JSONObject;
+import org.json.JSONArray;
+import org.json.JSONTokener;
 
 /** Native shell with an independent engine and a full-site compatibility surface. */
 public final class MainActivity extends Activity {
@@ -91,6 +97,12 @@ public final class MainActivity extends Activity {
     private Button back, forward, reload;
     private android.window.OnBackInvokedCallback gestureBack;
     private boolean gestureBackRegistered;
+    private BrowserAgentPanel agentPanel;
+    private final Handler agentHandler = new Handler(Looper.getMainLooper());
+    private int webRevision;
+    private int agentSerial;
+    private String agentObservation;
+    private String agentScript;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -117,10 +129,11 @@ public final class MainActivity extends Activity {
                 webHistoryEntries.add(indices != null && i < indices.length ? indices[i] : -1);
             }
             Bundle webState = state.getBundle("webHistory");
-            if (webState != null) restoringWebState = ensureWebView().restoreState(webState) != null;
+            if (webState != null && WebView.getCurrentWebViewPackage() != null) restoringWebState = ensureWebView().restoreState(webState) != null;
         }
         navigate(initial == null ? HOME : initial, !restored);
         restoringWebState = false;
+        if (state == null) handlePairIntent(getIntent());
     }
 
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
@@ -183,7 +196,9 @@ public final class MainActivity extends Activity {
         LinearLayout controls = new LinearLayout(this); controls.setGravity(Gravity.CENTER);
         back = control("‹", "Back"); forward = control("›", "Forward");
         Button home = control("⌂", "Home"); reload = control("↻", "Reload"); Button menu = control("⋮", "Menu");
-        for (Button b : new Button[]{back, forward, home, reload, menu}) controls.addView(b, new LinearLayout.LayoutParams(0, dp(52), 1));
+        Button ai = control("AI", "Toggle agent"); ai.setTextSize(17);
+        ai.setOnClickListener(view -> { agentPanel.toggle(); updateButtons(); });
+        for (Button b : new Button[]{back, forward, home, reload, ai, menu}) controls.addView(b, new LinearLayout.LayoutParams(0, dp(52), 1));
         back.setOnClickListener(v -> goBack());
         forward.setOnClickListener(v -> { URI uri = history.forward(); if (uri != null) navigate(uri, false); });
         home.setOnClickListener(v -> navigate(HOME));
@@ -193,6 +208,18 @@ public final class MainActivity extends Activity {
             else navigate(current, false);
         });
         menu.setOnClickListener(this::showMenu); root.addView(controls);
+        agentPanel = new BrowserAgentPanel(this, new MobileBrowserAgent.Host() {
+            @Override public CompletableFuture<MobileBrowserAgent.Snapshot> observe() { return observeAgentPage(); }
+            @Override public CompletableFuture<Void> act(MobileBrowserAgent.Command command, MobileBrowserAgent.Snapshot snapshot, boolean approved) {
+                return performAgentAction(command, snapshot, approved);
+            }
+            @Override public CompletableFuture<Boolean> approve(String message) { return CompletableFuture.completedFuture(false); }
+            @Override public void activity(String message) { }
+            @Override public void cancel() { ++agentSerial; agentObservation = null; }
+        });
+        int width = Math.min(dp(360), Math.max(dp(250), getResources().getDisplayMetrics().widthPixels - dp(24)));
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(width, -1, Gravity.END);
+        surfaces.addView(agentPanel, panelParams);
         page.requestFocus();
     }
 
@@ -284,6 +311,11 @@ public final class MainActivity extends Activity {
         if (record) recordHistory(uri, fullSite, -1);
         else if (history.index() >= 0) compatibilityEntries.set(history.index(), fullSite);
         compatibilityVisible = fullSite && CompatibilityPolicy.canLoad(uri);
+        if (compatibilityVisible && WebView.getCurrentWebViewPackage() == null) {
+            compatibilityVisible = false;
+            if (history.index() >= 0) compatibilityEntries.set(history.index(), false);
+            Toast.makeText(this, "Enable or update Android System WebView to use full websites.", Toast.LENGTH_LONG).show();
+        }
         scroll.setVisibility(compatibilityVisible ? View.GONE : View.VISIBLE);
         if (compatibilityVisible) {
             WebView view = ensureWebView();
@@ -419,6 +451,7 @@ public final class MainActivity extends Activity {
                 return rejectWebNavigation(source, target);
             }
             @Override public void onPageStarted(WebView source, String url, Bitmap icon) {
+                if (source == web) ++webRevision;
                 if (url.equals("about:blank")) return;
                 URI target = webAddress(url);
                 if (target == null) { source.stopLoading(); return; }
@@ -471,6 +504,7 @@ public final class MainActivity extends Activity {
                         .setOnCancelListener(dialog -> dontResend.sendToTarget()).show();
             }
             @Override public boolean onRenderProcessGone(WebView source, android.webkit.RenderProcessGoneDetail detail) {
+                if (source == web) ++webRevision;
                 committedWebAddresses.remove(source);
                 if (source == web) {
                     surfaces.removeView(source); source.destroy(); web = null;
@@ -545,7 +579,7 @@ public final class MainActivity extends Activity {
         if (web == null) {
             web = new WebView(this); configureWebView(web);
             web.setVisibility(compatibilityVisible ? View.INVISIBLE : View.GONE);
-            surfaces.addView(web, new FrameLayout.LayoutParams(-1, -1));
+            surfaces.addView(web, 1, new FrameLayout.LayoutParams(-1, -1));
         }
         return web;
     }
@@ -583,11 +617,12 @@ public final class MainActivity extends Activity {
     private void updateButtons() {
         back.setEnabled(history.canGoBack()); forward.setEnabled(history.canGoForward()); back.setAlpha(back.isEnabled() ? 1 : .3f); forward.setAlpha(forward.isEnabled() ? 1 : .3f);
         if (Build.VERSION.SDK_INT >= 33) {
-            if (gestureBack == null) gestureBack = this::goBack;
-            if (history.canGoBack() && !gestureBackRegistered) {
+            if (gestureBack == null) gestureBack = this::handleSystemBack;
+            boolean canHandleBack = history.canGoBack() || agentPanel != null && agentPanel.isOpen();
+            if (canHandleBack && !gestureBackRegistered) {
                 getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, gestureBack);
                 gestureBackRegistered = true;
-            } else if (!history.canGoBack() && gestureBackRegistered) {
+            } else if (!canHandleBack && gestureBackRegistered) {
                 getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(gestureBack); gestureBackRegistered = false;
             }
         }
@@ -600,7 +635,12 @@ public final class MainActivity extends Activity {
     public void goBack() { URI uri = history.back(); if (uri != null) navigate(uri, false); }
     // API 33+ uses the native OnBackInvokedDispatcher above; this handles older Android versions.
     @android.annotation.SuppressLint("GestureBackNavigation")
-    @Override public void onBackPressed() { if (history.canGoBack()) goBack(); else super.onBackPressed(); }
+    @Override public void onBackPressed() { if (agentPanel.isOpen()) { agentPanel.hide(); updateButtons(); } else if (history.canGoBack()) goBack(); else super.onBackPressed(); }
+    private void handleSystemBack() {
+        if (agentPanel.isOpen()) { agentPanel.hide(); updateButtons(); }
+        else if (history.canGoBack()) goBack();
+        else finish();
+    }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state); state.putString("address", current.toString());
         ArrayList<String> entries = new ArrayList<>(); for (URI entry : history.entries()) entries.add(entry.toString());
@@ -612,6 +652,7 @@ public final class MainActivity extends Activity {
         if (web != null) { Bundle webState = new Bundle(); web.saveState(webState); state.putBundle("webHistory", webState); }
     }
     @Override protected void onPause() {
+        if (agentPanel != null) agentPanel.stop();
         // A login may set cookies through fetch without finishing a new page load.
         if (web != null || !popupViews.isEmpty()) CookieManager.getInstance().flush();
         if (web != null) web.onPause();
@@ -624,6 +665,7 @@ public final class MainActivity extends Activity {
         for (WebView popup : popupViews) popup.onResume();
     }
     @Override protected void onDestroy() {
+        if (agentPanel != null) agentPanel.destroy();
         ++generation; stopWork(); worker.shutdownNow();
         if (uploadCallback != null) { uploadCallback.onReceiveValue(null); uploadCallback = null; }
         for (Dialog popup : new ArrayList<>(popupDialogs)) popup.dismiss();
@@ -635,7 +677,152 @@ public final class MainActivity extends Activity {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getDataString() == null) return null;
         return Address.resolve(intent.getDataString());
     }
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); URI uri = externalAddress(intent); if (uri != null) navigate(uri); }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent);
+        if (!handlePairIntent(intent)) { URI uri = externalAddress(intent); if (uri != null) navigate(uri); }
+    }
+    private boolean handlePairIntent(Intent intent) {
+        Uri data = intent == null ? null : intent.getData();
+        if (data == null || !"browseragent".equals(data.getScheme())) return false;
+        agentPanel.offerPairing(data.toString());
+        setIntent(new Intent(Intent.ACTION_MAIN));
+        updateButtons();
+        return true;
+    }
+
+    CompletableFuture<MobileBrowserAgent.Snapshot> observeAgentPage() {
+        CompletableFuture<MobileBrowserAgent.Snapshot> result = new CompletableFuture<>();
+        int serial = ++agentSerial;
+        pollAgentPage(serial, android.os.SystemClock.uptimeMillis() + 25_000, result);
+        return result;
+    }
+    private void pollAgentPage(int serial, long deadline, CompletableFuture<MobileBrowserAgent.Snapshot> result) {
+        if (serial != agentSerial || isFinishing() || isDestroyed()) { result.completeExceptionally(new java.io.IOException("The page changed.")); return; }
+        if (loading || compatibilityVisible && (web == null || web.getVisibility() != View.VISIBLE) || !compatibilityVisible && page.isLayoutRequested()) {
+            if (android.os.SystemClock.uptimeMillis() >= deadline) { result.completeExceptionally(new java.io.IOException("The page is still loading. Try again when it finishes.")); return; }
+            agentHandler.postDelayed(() -> pollAgentPage(serial, deadline, result), 75);
+            return;
+        }
+        String token = java.util.UUID.randomUUID().toString();
+        int request = generation, revision = webRevision;
+        String url = current.toString();
+        if (!compatibilityVisible) {
+            agentObservation = token;
+            result.complete(new MobileBrowserAgent.Snapshot(token, url, getTitle().toString(), page.agentText(scroll.getScrollY()),
+                    page.agentLinks(scroll.getScrollY(), scroll.getHeight()), false, agentCanGoBack(),
+                    scroll.canScrollVertically(-1), scroll.canScrollVertically(1), request, revision));
+            return;
+        }
+        WebView observed = web;
+        evaluateAgent("observe", new JSONObject(), value -> {
+            if (serial != agentSerial || generation != request || webRevision != revision || web != observed
+                    || !compatibilityVisible || loading || !url.equals(current.toString())) {
+                result.completeExceptionally(new java.io.IOException("The page changed. Read it again."));
+                return;
+            }
+            try {
+                Object decoded = new JSONTokener(value).nextValue();
+                if (!(decoded instanceof String)) throw new IllegalArgumentException();
+                JSONObject json = new JSONObject((String) decoded);
+                String location = json.getString("url");
+                if (!location.equals(observed.getUrl())) throw new IllegalArgumentException();
+                ArrayList<MobileBrowserAgent.Element> elements = new ArrayList<>();
+                JSONArray entries = json.getJSONArray("elements");
+                for (int i = 0; i < Math.min(entries.length(), 64); i++) {
+                    JSONObject entry = entries.getJSONObject(i);
+                    elements.add(new MobileBrowserAgent.Element(entry.getInt("id"), entry.getString("kind"), entry.getString("label"),
+                            entry.isNull("url") ? null : entry.getString("url"), entry.getString("selector"), entry.getString("signature")));
+                }
+                agentObservation = token;
+                result.complete(new MobileBrowserAgent.Snapshot(token, location, json.getString("title"), json.getString("text"),
+                        elements, true, agentCanGoBack(), json.optBoolean("canUp"), json.optBoolean("canDown"), request, revision));
+            } catch (Exception error) { result.completeExceptionally(new java.io.IOException("Couldn’t read this website. Try reloading it.")); }
+        });
+    }
+    private boolean agentCanGoBack() {
+        if (!history.canGoBack()) return false;
+        URI previous = history.entries().get(history.index() - 1);
+        return CompatibilityPolicy.canLoad(previous) || HOME.equals(previous) || PageView.agentLinkAllowed(previous);
+    }
+    CompletableFuture<Void> performAgentAction(MobileBrowserAgent.Command command, MobileBrowserAgent.Snapshot snapshot, boolean approved) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        if (!snapshot.token.equals(agentObservation) || snapshot.generation != generation || snapshot.website != compatibilityVisible
+                || !snapshot.url.equals(current.toString()) || loading || snapshot.website && snapshot.revision != webRevision) {
+            result.completeExceptionally(new java.io.IOException("The page changed. Read it again before acting."));
+            return result;
+        }
+        MobileBrowserAgent.Element element = snapshot.element(command.id);
+        if (!approved && (command.verb.equals("TYPE") || command.verb.equals("CLICK") && element != null && element.kind.equals("button"))) {
+            result.completeExceptionally(new java.io.IOException("Approve this website action first."));
+            return result;
+        }
+        agentObservation = null;
+        try {
+            switch (command.verb) {
+                case "OPEN": case "SEARCH":
+                    URI target = command.navigation();
+                    if (!CompatibilityPolicy.canLoad(target)) throw new IllegalArgumentException();
+                    navigate(target); break;
+                case "BACK":
+                    if (!agentCanGoBack()) throw new IllegalArgumentException();
+                    goBack(); break;
+                case "COMPATIBILITY":
+                    if (compatibilityVisible || !CompatibilityPolicy.canLoad(current)) throw new IllegalArgumentException();
+                    if (WebView.getCurrentWebViewPackage() == null) {
+                        result.completeExceptionally(new java.io.IOException("Enable or update Android System WebView to use interactive websites."));
+                        return result;
+                    }
+                    navigate(current, false, true); break;
+                case "CLICK":
+                    if (element == null || element.kind.equals("input")) throw new IllegalArgumentException();
+                    if (element.kind.equals("link")) {
+                        URI link = URI.create(element.url);
+                        if (!PageView.agentLinkAllowed(link)) throw new IllegalArgumentException();
+                        if (snapshot.website) {
+                            if (!CompatibilityPolicy.canLoad(link) || web == null) throw new IllegalArgumentException();
+                            web.loadUrl(link.toString());
+                        } else navigate(link);
+                    } else return evaluateAgentAction(command, snapshot, element);
+                    break;
+                case "TYPE":
+                    if (element == null || !element.kind.equals("input")) throw new IllegalArgumentException();
+                    return evaluateAgentAction(command, snapshot, element);
+                case "SCROLL":
+                    if (snapshot.website) return evaluateAgentAction(command, snapshot, null);
+                    int offset = scroll.getScrollY() + Math.round(command.id * scroll.getHeight() * .85f);
+                    scroll.scrollTo(0, Math.max(0, Math.min(page.getHeight() - scroll.getHeight(), offset)));
+                    break;
+                default: throw new IllegalArgumentException();
+            }
+            result.complete(null);
+        } catch (Exception error) { result.completeExceptionally(new java.io.IOException("That action is unavailable on this page.")); }
+        return result;
+    }
+    private CompletableFuture<Void> evaluateAgentAction(MobileBrowserAgent.Command command, MobileBrowserAgent.Snapshot snapshot, MobileBrowserAgent.Element element) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        try {
+            if (web == null || !compatibilityVisible) throw new IllegalArgumentException();
+            JSONObject expected = new JSONObject().put("url", snapshot.url).put("id", command.id).put("text", command.text);
+            if (element != null) expected.put("selector", element.selector).put("signature", element.signature);
+            evaluateAgent(command.verb, expected, value -> {
+                if ("true".equals(value)) result.complete(null);
+                else result.completeExceptionally(new java.io.IOException("The page changed. Read it again before acting."));
+            });
+        } catch (Exception error) { result.completeExceptionally(new java.io.IOException("Couldn’t perform this website action.")); }
+        return result;
+    }
+    private void evaluateAgent(String operation, JSONObject expected, ValueCallback<String> callback) {
+        try {
+            if (agentScript == null) try (java.io.InputStream input = getAssets().open("agent-page.js");
+                    java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
+                byte[] bytes = new byte[4096]; int count;
+                while ((count = input.read(bytes)) != -1) output.write(bytes, 0, count);
+                agentScript = output.toString(java.nio.charset.StandardCharsets.UTF_8.name());
+            }
+            web.evaluateJavascript("(function(operation,expected){" + agentScript + "})(" + JSONObject.quote(operation) + "," + expected + ")", callback);
+        } catch (Exception error) { callback.onReceiveValue("null"); }
+    }
+    BrowserAgentPanel getAgentPanel() { return agentPanel; }
     private static String escape(String s) { return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;"); }
     public PageView getPageView() { return page; }
     public WebView getCompatibilityView() { return web; }

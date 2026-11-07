@@ -12,6 +12,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     private let backButton = NSButton()
     private let forwardButton = NSButton()
     private let reloadButton = NSButton()
+    private let agentButton = NSButton()
+    private let agentSidebar = BrowserAgentSidebar()
+    private var pageTrailingAtWindow: NSLayoutConstraint?
+    private var pageTrailingAtSidebar: NSLayoutConstraint?
     private let loader = PageLoader()
     private var history = NavigationHistory()
     private var navigationTask: Task<Void, Never>?
@@ -21,6 +25,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var currentStatus = "Ready"
     private var visibleDocument: HTMLDocument?
     private var displayedURL: URL?
+    private let agentWindowID = UUID()
+    private var agentObservationID: UUID?
     private(set) var compatibilitySession: SiteSession?
     // The app history joins independent pages to full-site sessions. Within a session,
     // WebKit owns history so POSTs, redirects, SPA state and back/forward caches survive.
@@ -41,16 +47,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func button(_ existing: NSButton? = nil, symbol: String, label: String, action: Selector) -> NSButton {
+    private func button(_ existing: NSButton? = nil, symbol: String, label: String, action: Selector,
+                        title: String? = nil) -> NSButton {
         let button = existing ?? NSButton()
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         button.bezelStyle = .texturedRounded
-        button.imagePosition = .imageOnly
+        button.title = title ?? ""
+        button.imagePosition = title == nil ? .imageOnly : .imageLeading
         button.target = self; button.action = action
         button.toolTip = label
         button.setAccessibilityLabel(label)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        if title == nil { button.widthAnchor.constraint(equalToConstant: 34).isActive = true }
         button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         return button
     }
@@ -75,7 +83,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         addressField.setAccessibilityLabel("Address")
         progress.style = .spinning; progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
-        let header = NSStackView(views: [controls, addressField, progress])
+        let assistant = button(agentButton, symbol: "sidebar.right", label: "Open AI Agent (⇧⌘A)",
+                               action: #selector(toggleAgentSidebar(_:)), title: "AI Agent")
+        assistant.setButtonType(.toggle)
+        let header = NSStackView(views: [controls, addressField, progress, assistant])
         header.spacing = 12; header.alignment = .centerY
         header.translatesAutoresizingMaskIntoConstraints = false
         toolbar.addSubview(header)
@@ -98,21 +109,36 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         footer.addSubview(statusLabel)
-        for view in [toolbar, scrollView, footer] { view.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(view) }
+        agentSidebar.isHidden = true
+        for view in [toolbar, scrollView, footer, agentSidebar] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+        }
+        let pageTrailingAtWindow = scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor)
+        self.pageTrailingAtWindow = pageTrailingAtWindow
+        pageTrailingAtSidebar = scrollView.trailingAnchor.constraint(equalTo: agentSidebar.leadingAnchor)
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: content.topAnchor), toolbar.leadingAnchor.constraint(equalTo: content.leadingAnchor), toolbar.trailingAnchor.constraint(equalTo: content.trailingAnchor), toolbar.heightAnchor.constraint(equalToConstant: 54),
             header.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 12), header.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -14), header.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             addressField.heightAnchor.constraint(equalToConstant: 32), addressField.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
             progress.widthAnchor.constraint(equalToConstant: 16), progress.heightAnchor.constraint(equalToConstant: 16),
-            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor), scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor), scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor), scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
+            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor), scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor), pageTrailingAtWindow, scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
+            agentSidebar.topAnchor.constraint(equalTo: toolbar.bottomAnchor), agentSidebar.bottomAnchor.constraint(equalTo: footer.topAnchor),
+            agentSidebar.trailingAnchor.constraint(equalTo: content.trailingAnchor), agentSidebar.widthAnchor.constraint(equalToConstant: 350),
             footer.heightAnchor.constraint(equalToConstant: 26), footer.leadingAnchor.constraint(equalTo: content.leadingAnchor), footer.trailingAnchor.constraint(equalTo: content.trailingAnchor), footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             statusLabel.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 14), statusLabel.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -14), statusLabel.centerYAnchor.constraint(equalTo: footer.centerYAnchor)
         ])
+        agentSidebar.onClose = { [weak self] in
+            guard let self, !self.agentSidebar.isHidden else { return }
+            self.toggleAgentSidebar(nil)
+        }
+        connectAgent(to: agentSidebar)
     }
 
     func start(at url: URL? = nil) { showWindow(nil); navigate(url ?? currentURL) }
     func windowDidResize(_ notification: Notification) { canvas.relayout() }
     func windowWillClose(_ notification: Notification) {
+        agentSidebar.stop()
         navigationTask?.cancel()
         compatibilitySession = nil
         for session in websiteSessions.values { session.stop() }
@@ -120,6 +146,34 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         onClose?()
     }
     @objc func focusAddress(_ sender: Any?) { window?.makeFirstResponder(addressField); addressField.selectText(nil) }
+    @objc func toggleAgentSidebar(_ sender: Any?) {
+        let showing = agentSidebar.isHidden
+        agentButton.state = showing ? .on : .off
+        let label = showing ? "Close AI Agent (⇧⌘A)" : "Open AI Agent (⇧⌘A)"
+        agentButton.toolTip = label
+        agentButton.setAccessibilityLabel(label)
+        if showing {
+            pageTrailingAtWindow?.isActive = false
+            pageTrailingAtSidebar?.isActive = true
+            agentSidebar.isHidden = false
+            if let window, let size = window.contentView?.bounds.size {
+                let minimum = NSSize(width: 740, height: 365)
+                window.contentMinSize = minimum
+                if size.width < minimum.width || size.height < minimum.height {
+                    window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
+                }
+            }
+            agentSidebar.focusTask()
+        } else {
+            pageTrailingAtSidebar?.isActive = false
+            pageTrailingAtWindow?.isActive = true
+            agentSidebar.isHidden = true
+            window?.minSize = NSSize(width: 520, height: 360)
+            window?.makeFirstResponder(compatibilitySession?.webView ?? canvas)
+        }
+        window?.contentView?.layoutSubtreeIfNeeded()
+        canvas.relayout()
+    }
     func controlTextDidEndEditing(_ notification: Notification) {
         // Let a Return-triggered submitAddress read the user's text first, then restore
         // the actual address when an edit is abandoned or focus moves into the page.
@@ -410,6 +464,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             return SiteSession.allowsNavigation(currentURL)
         }
         if menuItem.action == #selector(stopLoading(_:)) { return isLoading }
+        if menuItem.action == #selector(toggleAgentSidebar(_:)) {
+            menuItem.state = agentSidebar.isHidden ? .off : .on
+        }
         return true
     }
     static func escape(_ text: String) -> String {
@@ -440,6 +497,124 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         <html><head><title>Page unavailable</title><style>body { padding: 28px; color: #26354a; } h1 { font-size: 32px; margin-top: 60px; } p { font-size: 17px; }</style></head><body>
         <h1>This page couldn’t be loaded.</h1><p>\(escape(message))</p><p>\(escape(url.absoluteString))</p><p>Check the address or your connection, then press ⌘R to try again.</p></body></html>
         """
+    }
+}
+
+extension BrowserWindowController {
+    func observeForAgent() async throws -> BrowserAgentPage {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(25))
+        while isLoading || compatibilitySession?.isLoading == true {
+            guard clock.now < deadline else { throw BrowserAgentPageError.stillLoading }
+            try await Task.sleep(for: .milliseconds(75))
+        }
+        try Task.checkCancellation()
+        window?.contentView?.layoutSubtreeIfNeeded()
+
+        let id = UUID()
+        agentObservationID = id
+        let generation = self.generation
+        if let session = compatibilitySession {
+            let revision = session.navigationRevision
+            let address = session.url
+            let snapshot = try await WebsiteAgentDOM.snapshot(in: session.webView, token: id.uuidString)
+            try Task.checkCancellation()
+            guard agentObservationID == id, self.generation == generation, compatibilitySession === session,
+                  revision == session.navigationRevision, address == session.url, !session.isLoading else {
+                throw BrowserAgentPageError.changed
+            }
+            return BrowserAgentPage(url: snapshot.url, title: snapshot.title, text: snapshot.text, elements: snapshot.elements,
+                                    canGoBack: agentCanGoBack, canScrollUp: snapshot.canScrollUp,
+                                    canScrollDown: snapshot.canScrollDown, windowID: agentWindowID, generation: generation,
+                                    observationID: id, websiteRevision: revision)
+        }
+        guard let document = visibleDocument, displayedURL == currentURL else {
+            throw BrowserAgentPageError.unavailable
+        }
+        let viewport = canvas.visibleRect
+        return BrowserAgentPage(url: currentURL.absoluteString, title: String(document.title.prefix(200)),
+                                text: canvas.renderedText(startingAt: viewport.minY, maxCharacters: 8000),
+                                elements: canvas.agentLinks(), canGoBack: agentCanGoBack,
+                                canScrollUp: viewport.minY > 1, canScrollDown: canvas.bounds.maxY - viewport.maxY > 1,
+                                windowID: agentWindowID,
+                                generation: generation, observationID: id, websiteRevision: nil)
+    }
+
+    func performAgentAction(_ action: BrowserAgentPageAction, on page: BrowserAgentPage, approved: Bool = false) async throws {
+        try Task.checkCancellation()
+        guard page.windowID == agentWindowID, page.generation == generation, page.observationID == agentObservationID,
+              !isLoading else { throw BrowserAgentPageError.changed }
+        let session = compatibilitySession
+        if let session {
+            guard session.navigationRevision == page.websiteRevision, !session.isLoading,
+                  URL(string: page.url) == session.url else { throw BrowserAgentPageError.changed }
+        } else if page.compatibilityMode || currentURL.absoluteString != page.url {
+            throw BrowserAgentPageError.changed
+        }
+        guard approved || page.approvalDescription(for: action) == nil else {
+            throw BrowserAgentPageError.approvalRequired
+        }
+        agentObservationID = nil
+        let token = page.observationID.uuidString
+
+        switch action {
+        case .navigate(let url):
+            guard SiteSession.allowsNavigation(url) else { throw BrowserAgentPageError.unsupportedAddress }
+            navigate(url)
+        case .back:
+            guard agentCanGoBack else { throw BrowserAgentPageError.invalidAction }
+            let goesBackWithinWebsite = session?.webView.canGoBack == true
+            goBack(nil)
+            if goesBackWithinWebsite, let session {
+                try await waitForWebsiteNavigation(from: page, in: session)
+            }
+        case .enableCompatibility:
+            guard session == nil, SiteSession.allowsNavigation(currentURL) else { throw BrowserAgentPageError.invalidAction }
+            toggleCompatibility(nil)
+        case .scroll(let pages):
+            guard (-3...3).contains(pages), pages != 0 else { throw BrowserAgentPageError.invalidAction }
+            if let session {
+                try await WebsiteAgentDOM.scroll(pages, in: session.webView, token: token)
+            } else {
+                canvas.agentScroll(pages: pages)
+            }
+        case .click(let id):
+            guard let element = page.elements.first(where: { $0.id == id }), element.kind != .input else {
+                throw BrowserAgentPageError.invalidAction
+            }
+            if let session {
+                try await WebsiteAgentDOM.click(id, in: session.webView, token: token)
+                if element.kind == .link { try await waitForWebsiteNavigation(from: page, in: session) }
+            } else if let url = element.url.flatMap(URL.init(string:)), SiteSession.allowsNavigation(url) {
+                navigate(url)
+            } else {
+                throw BrowserAgentPageError.invalidAction
+            }
+        case .type(let id, let text):
+            guard let session, text.utf8.count <= 4096,
+                  page.elements.contains(where: { $0.id == id && $0.kind == .input }) else {
+                throw BrowserAgentPageError.invalidAction
+            }
+            try await WebsiteAgentDOM.type(text, into: id, in: session.webView, token: token)
+        }
+    }
+
+    private var agentCanGoBack: Bool {
+        if let item = compatibilitySession?.webView.backForwardList.backItem {
+            return SiteSession.allowsNavigation(item.url)
+        }
+        guard history.canGoBack else { return false }
+        let url = history.entries[history.index - 1]
+        return url.absoluteString == "browser:home" || SiteSession.allowsNavigation(url)
+    }
+
+    private func waitForWebsiteNavigation(from page: BrowserAgentPage, in session: SiteSession) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(750))
+        while compatibilitySession === session, session.navigationRevision == page.websiteRevision,
+              session.url?.absoluteString == page.url, !session.isLoading, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
     }
 }
 

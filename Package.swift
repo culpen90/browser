@@ -10,9 +10,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "BrowserCore"),
-        .executableTarget(name: "BrowserApp", dependencies: ["BrowserCore"]),
+        .target(name: "BrowserLLMKernels"),
+        .target(name: "BrowserLLM", dependencies: ["BrowserLLMKernels"]),
+        .executableTarget(name: "BrowserApp", dependencies: ["BrowserCore", "BrowserLLM"]),
         .testTarget(name: "BrowserCoreTests", dependencies: ["BrowserCore"]),
-        .testTarget(name: "BrowserAppTests", dependencies: ["BrowserApp"])
+        .testTarget(name: "BrowserAppTests", dependencies: ["BrowserApp", "BrowserLLM"])
     ],
     swiftLanguageModes: [.v5]
 )

@@ -22,6 +22,7 @@ import android.widget.ScrollView;
 
 import com.culpen.browser.engine.Css;
 import com.culpen.browser.engine.Html;
+import com.culpen.browser.engine.PageLoader;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -91,6 +92,46 @@ public final class PageView extends View {
 
     public String getTextContent() { return layout.text; }
     public int getLinkCount() { return layout.links.size(); }
+
+    String agentText(int top) {
+        StringBuilder text = new StringBuilder();
+        for (Segment item : layout.segments) {
+            if (item.rect.bottom < top) continue;
+            if (text.length() > 0) text.append('\n');
+            text.append(item.label);
+            if (text.length() >= 8000) break;
+        }
+        return MobileBrowserAgent.prefix(text.toString(), 8000);
+    }
+
+    java.util.List<MobileBrowserAgent.Element> agentLinks(int top, int height) {
+        java.util.List<Segment> combined = new ArrayList<>();
+        URI previousLink = null;
+        for (Segment item : layout.segments) {
+            if (item.link == null || !agentLinkAllowed(item.link)) { previousLink = null; continue; }
+            if ("asset".equals(item.link.getScheme()) && !"asset".equals(baseUri.getScheme()) && !"browser:demo".equals(baseUri.toString())) continue;
+            Segment previous = combined.isEmpty() ? null : combined.get(combined.size() - 1);
+            if (previous != null && item.link.equals(previousLink)) {
+                previous.label = MobileBrowserAgent.prefix(previous.label + " " + item.label, 160);
+                previous.rect.union(item.rect);
+            } else combined.add(new Segment(item.label, item.rect, item.link));
+            previousLink = item.link;
+        }
+        combined.sort(java.util.Comparator.comparingDouble(item -> Math.max(0, Math.max(top - item.rect.bottom, item.rect.top - top - height))));
+        java.util.Set<URI> seen = new java.util.HashSet<>();
+        java.util.List<MobileBrowserAgent.Element> result = new ArrayList<>();
+        for (Segment item : combined) {
+            if (!seen.add(item.link)) continue;
+            result.add(new MobileBrowserAgent.Element(result.size() + 1, "link", MobileBrowserAgent.prefix(item.label, 160), item.link.toString()));
+            if (result.size() == 64) break;
+        }
+        return result;
+    }
+
+    static boolean agentLinkAllowed(URI uri) {
+        return CompatibilityPolicy.canLoad(uri) || "browser:demo".equals(uri.toString())
+                || "asset".equals(uri.getScheme()) && PageLoader.resourceAllowed(uri, URI.create("asset:/demo/index.html"));
+    }
 
     /** Positions are in this View's coordinate space, useful to hosts and instrumentation. */
     public RectF getLinkBounds(int index) {
