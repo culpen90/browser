@@ -1,17 +1,16 @@
-# Browser for Android v0.2.1
+# Browser for Android v0.2.2
 
-Included in the [Browser v0.2.1 release](https://github.com/culpen90/browser/releases/tag/v0.2.1).
+Included in the [Browser v0.2.2 release](https://github.com/culpen90/browser/releases/tag/v0.2.2).
 
 ## Changes
 
-- A simple greeting such as `hola` now receives a reply without reading the page, contacting the Mac, or starting browser actions.
-- Recognized greetings, thanks, and help requests work without PC pairing.
-- Unclear input such as `hmm` cannot enter the browser action loop, and Home no longer grants search by itself.
-- Page questions and explicit browsing tasks retain the existing agent behavior.
+- The Mac companion app now shows **Connect Phone…** beside Run and Stop in its AI Agent panel. Click it, then choose **Start Sharing** to pair Android.
+- Android's pairing and agent behavior are unchanged in this release.
+- Retains the v0.2.1 fix: recognized greetings such as `hola`, thanks, and help requests receive an immediate reply without reading the page, contacting the Mac, or starting browser actions. Unclear input cannot enter the browser action loop.
 
 ## Install
 
-Requires **Android 8.0 (API 26) or later**. Download **Browser-0.2.1-Android.apk** and open it to install or update Browser. Version code is 3; debugging is disabled. The APK uses the same production signing identity as previous releases.
+Requires **Android 8.0 (API 26) or later**. Download **Browser-0.2.2-Android.apk** and open it to install or update Browser. Version code is 4; debugging is disabled. The APK uses the same production signing identity as previous releases.
 
 The release includes **Android-SHA256SUMS.txt** and **Android-signature.txt**. The production certificate SHA-256 fingerprint is:
 

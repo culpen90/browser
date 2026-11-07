@@ -24,19 +24,19 @@ Browser's own inference engine implements GGUF loading, byte-level BPE, and the 
 
 ### Use the Mac's model from Android
 
-Connect your Mac and phone to the same Wi-Fi. In the Mac's AI Agent panel, choose **Model → Connect Phone… → Start Sharing**. Scan the QR code with your phone's camera and open it in Browser, or open **AI → Connect PC** in the Android browser and paste the pairing link. Keep desktop Browser open while using the phone's agent. **Stop Sharing** disconnects the phone, and starting sharing again creates a new pairing link.
+Connect your Mac and phone to the same Wi-Fi. Open **AI Agent** in the Mac browser's toolbar, click **Connect Phone…** beside Run and Stop, then choose **Start Sharing**. Scan the QR code with your phone's camera and open it in Browser, or open **AI → Connect PC** in the Android browser and paste the pairing link. Keep desktop Browser open while using the phone's agent. **Stop Sharing** disconnects the phone, and starting sharing again creates a new pairing link.
 
 Pairing connects the Android browser's agent to the model running on your Mac. The phone sends task and page observations in authenticated encrypted messages, and carries out the resulting browser actions on the phone. The pairing link grants access to this model session. Sharing starts only when you enable it and ends when Browser quits.
 
 ## Android download and install
 
-[Download Browser for Android v0.2.1](https://github.com/culpen90/browser/releases/tag/v0.2.1). Choose **`Browser-0.2.1-Android.apk`**. Requires **Android 8.0 (API 26) or later**; one APK supports phones and tablets across CPU architectures. It is a signed, optimized release build with debugging disabled.
+[Download Browser for Android v0.2.2](https://github.com/culpen90/browser/releases/tag/v0.2.2). Choose **`Browser-0.2.2-Android.apk`**. Requires **Android 8.0 (API 26) or later**; one APK supports phones and tablets across CPU architectures. It is a signed, optimized release build with debugging disabled.
 
 Open the downloaded APK and allow your browser or file manager to install apps if Android asks. Future APK updates must be signed with the same release key. The release includes `Android-SHA256SUMS.txt` and the public signing-certificate fingerprint in `Android-signature.txt`.
 
 Android provides an address bar, Back/Forward, Home, Reload/Stop, scrolling, touch and keyboard links, TalkBack page text/link actions, and a menu for opening HTML/text files through Android's document picker or copying page text/address. The bundled sample page works offline. Chosen local documents currently support inline CSS and network resources; relative companion files are unavailable through the document picker.
 
-Version 0.2.1 includes Reddit compatibility and an AI panel that pairs with the Mac's model, as described above. Website Compatibility requires an installed Android System WebView provider. History stays in memory and is restored across Activity recreation; independent-engine cookies are in memory and reset when the Activity's loader is recreated. No analytics or browser account service is included.
+Version 0.2.2 includes Reddit compatibility and an AI panel that pairs with the Mac's model, as described above. Website Compatibility requires an installed Android System WebView provider. History stays in memory and is restored across Activity recreation; independent-engine cookies are in memory and reset when the Activity's loader is recreated. No analytics or browser account service is included.
 
 ### Build Android from source
 
@@ -72,13 +72,13 @@ ANDROID_BROWSER_SIGNING_PROPERTIES="$HOME/.local/share/browser-android/release-s
 ANDROID_SERIAL=emulator-5580 ./gradlew -PtestRelease connectedReleaseAndroidTest
 ```
 
-Version 0.2.1 includes both Android and macOS downloads under the shared `v0.2.1` release tag. Publishing remains manual; Android CI runs unit tests, lint, and compiles the app/instrumentation APKs, while macOS CI tests and packages the Mac app.
+Version 0.2.2 includes both Android and macOS downloads under the shared `v0.2.2` release tag. Publishing remains manual; Android CI runs unit tests, lint, and compiles the app/instrumentation APKs, while macOS CI tests and packages the Mac app.
 
 ## Download and install
 
-[Download Browser v0.2.1 for macOS](https://github.com/culpen90/browser/releases/tag/v0.2.1). The release includes a real `Browser.app` for macOS 13 or later, with both Apple silicon and Intel support. Xcode and a developer account are not required to run it.
+[Download Browser v0.2.2 for macOS](https://github.com/culpen90/browser/releases/tag/v0.2.2). The release includes a real `Browser.app` for macOS 13 or later, with both Apple silicon and Intel support. Xcode and a developer account are not required to run it.
 
-1. Download `Browser-0.2.1-macOS-universal.dmg`, open it, and drag `Browser.app` to Applications. Alternatively, download and extract `Browser-0.2.1-macOS-universal.zip`, then move `Browser.app` to Applications.
+1. Download `Browser-0.2.2-macOS-universal.dmg`, open it, and drag `Browser.app` to Applications. Alternatively, download and extract `Browser-0.2.2-macOS-universal.zip`, then move `Browser.app` to Applications.
 2. Open Browser from Applications.
 3. If macOS blocks the first launch because it cannot verify the developer, open **System Settings → Privacy & Security**, click **Open Anyway** for Browser, and confirm **Open**. See [Apple's first-launch instructions](https://support.apple.com/102445).
 

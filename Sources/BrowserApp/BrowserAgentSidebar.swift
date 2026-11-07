@@ -135,7 +135,10 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
         stopButton.action = #selector(stopTask(_:))
         runButton.toolTip = "Start the browser task"
         stopButton.toolTip = "Stop the agent"
-        let actions = NSStackView(views: [runButton, stopButton, NSView()])
+        let connectPhoneButton = NSButton(title: "Connect Phone…", target: self, action: #selector(connectPhone(_:)))
+        connectPhoneButton.toolTip = "Use this Mac’s model in Browser on your phone"
+        connectPhoneButton.setAccessibilityLabel("Connect Phone")
+        let actions = NSStackView(views: [runButton, stopButton, NSView(), connectPhoneButton])
         actions.spacing = 7
 
         modelLabel.font = .systemFont(ofSize: 11)
@@ -199,6 +202,7 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
             header.widthAnchor.constraint(equalTo: layout.widthAnchor),
             taskScroll.widthAnchor.constraint(equalTo: layout.widthAnchor),
             taskScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 38),
+            actions.widthAnchor.constraint(equalTo: layout.widthAnchor),
             modelRow.widthAnchor.constraint(equalTo: layout.widthAnchor),
             activity.widthAnchor.constraint(equalTo: layout.widthAnchor),
             logScroll.widthAnchor.constraint(equalTo: activity.widthAnchor),
