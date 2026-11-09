@@ -234,6 +234,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     func navigate(_ url: URL, record: Bool = true, compatibility: Bool? = nil) {
+        if url.scheme?.lowercased() == "browseragent" {
+            if let window {
+                if url.host?.lowercased() == "phone" {
+                    BrowserAgentPhonesController.shared.receivePhoneURL(url, from: window)
+                } else { BrowserAgentDevicesController.shared.receivePairingURL(url, from: window) }
+            }
+            addressField.stringValue = currentURL.absoluteString
+            return
+        }
         let restoringBlank = !record && url.absoluteString == "about:blank" && websiteSessions[history.index] != nil
         guard let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) || url.absoluteString == "browser:home" || restoringBlank else {
             setStatus("This address type is not supported."); NSSound.beep(); return

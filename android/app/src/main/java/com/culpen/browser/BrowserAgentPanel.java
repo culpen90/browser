@@ -2,6 +2,7 @@ package com.culpen.browser;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,12 +19,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Supplier;
+import java.util.List;
 
 /** A dismissible native sidebar. Closing it keeps the current task running. */
 final class BrowserAgentPanel extends LinearLayout {
     private final Activity activity;
     private final MobileBrowserAgent.Host browser;
     private final AgentPairingStore store;
+    private final AgentDeviceDiscovery discovery;
+    private final AgentPhoneInbox phoneInbox;
+    private final AgentPhonePresenceClient phonePresence;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final TextView state, pc, log;
@@ -31,16 +36,22 @@ final class BrowserAgentPanel extends LinearLayout {
     private final EditText task;
     private final Button run, stop, pair;
     private AgentConnection connection;
+    private AgentConnection runningEndpoint;
     private Future<?> running;
     private int runID;
     private boolean destroyed;
     private AlertDialog review;
     private CompletableFuture<Boolean> reviewResult;
+    private AlertDialog phoneReview;
+    private CompletableFuture<Boolean> phoneReviewResult;
 
     BrowserAgentPanel(Activity activity, MobileBrowserAgent.Host browser) {
         super(activity);
         this.activity = activity; this.browser = browser;
         store = new AgentPairingStore(activity); connection = store.load();
+        discovery = new AgentDeviceDiscovery(activity, () -> { if (!destroyed) { updatePC(); refreshPresence(); } });
+        phoneInbox = new AgentPhoneInbox(activity, this::approveComputer, link -> { show(); return connect(link); });
+        phonePresence = new AgentPhonePresenceClient(phoneInbox::phoneID, this::attachFromComputer);
         setOrientation(VERTICAL); setPadding(dp(16), dp(10), dp(16), dp(12));
         setBackgroundColor(0xfff7f8fa); setElevation(dp(12)); setVisibility(GONE);
         LinearLayout heading = new LinearLayout(activity); heading.setGravity(Gravity.CENTER_VERTICAL);
@@ -55,10 +66,12 @@ final class BrowserAgentPanel extends LinearLayout {
         state = label("Ready", 12); body.addView(state);
         pc = label("", 12); pc.setTextIsSelectable(false); body.addView(pc);
         LinearLayout connectionRow = new LinearLayout(activity);
-        pair = button("Connect PC", "Connect PC"); pair.setOnClickListener(view -> showPairingInput());
+        pair = button("Devices", "Model devices"); pair.setOnClickListener(view -> showDevices());
         Button disconnect = button("Disconnect", "Disconnect PC");
         disconnect.setOnClickListener(view -> {
-            stop(); connection = null; store.clear(); updatePC(); state.setText("Disconnected");
+            try {
+                store.select(null); stop(); connection = null; updatePC(); refreshPresence(); state.setText("Disconnected");
+            } catch (Exception error) { state.setText("Couldn’t save the device selection."); }
         });
         connectionRow.addView(pair, new LayoutParams(0, -2, 1));
         connectionRow.addView(disconnect, new LayoutParams(0, -2, 1)); body.addView(connectionRow);
@@ -73,13 +86,13 @@ final class BrowserAgentPanel extends LinearLayout {
         run.setOnClickListener(view -> runTask()); stop.setOnClickListener(view -> stop());
         controls.addView(run, new LayoutParams(0, -2, 1)); controls.addView(stop, new LayoutParams(0, -2, 1)); body.addView(controls);
         logScroll = new ScrollView(activity); logScroll.setFillViewport(true);
-        log = label("Open Browser on your PC, open its agent, and choose Connect Phone. Scan the QR code or paste its pairing link here.", 14);
+        log = label("Choose Devices to select a saved computer. To add one, open its model sharing window and scan or paste its pairing link.", 14);
         log.setContentDescription("Agent activity"); log.setTextIsSelectable(true);
         log.setPadding(0, dp(8), 0, dp(8));
         logScroll.addView(log, new ScrollView.LayoutParams(-1, -2));
         logScroll.setNestedScrollingEnabled(true);
         body.addView(logScroll, new LayoutParams(-1, dp(220)));
-        TextView footer = label("The paired PC runs the model. Tasks and page text travel encrypted over your local network.", 11);
+        TextView footer = label("The selected computer runs the model. Tasks and page text travel directly between your devices, encrypted.", 11);
         footer.setPadding(0, dp(6), 0, 0); body.addView(footer);
         bodyScroll.addView(body, new ScrollView.LayoutParams(-1, -2));
         addView(bodyScroll, new LayoutParams(-1, 0, 1));
@@ -96,7 +109,7 @@ final class BrowserAgentPanel extends LinearLayout {
         view.setMinWidth(0); view.setMinimumWidth(0); view.setContentDescription(description); return view;
     }
     void toggle() { if (getVisibility() == VISIBLE) hide(); else show(); }
-    void show() { setVisibility(VISIBLE); updatePC(); }
+    void show() { setVisibility(VISIBLE); discovery.start(); updatePC(); }
     void hide() {
         ((android.view.inputmethod.InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE))
                 .hideSoftInputFromWindow(task.getWindowToken(), 0);
@@ -110,34 +123,89 @@ final class BrowserAgentPanel extends LinearLayout {
         try { proposed = AgentConnection.parse(link); }
         catch (IllegalArgumentException error) { show(); state.setText(error.getMessage()); return; }
         show();
-        new AlertDialog.Builder(activity).setTitle("Connect this PC?")
-                .setMessage(proposed.label() + "\n\nYour browsing tasks and page text will be sent encrypted to this PC for local AI processing.")
+        new AlertDialog.Builder(activity).setTitle("Add this computer?")
+                .setMessage(proposed.label() + "\n" + proposed.addressLabel()
+                        + "\n\nYour browsing tasks and page text will be sent encrypted to this computer for model processing.")
                 .setPositiveButton("Connect", (dialog, which) -> connect(link))
                 .setNegativeButton("Cancel", null).show();
     }
 
     private void showPairingInput() {
         EditText field = new EditText(activity); field.setHint("browseragent://pair?…"); field.setSingleLine(true);
-        field.setContentDescription("PC pairing link");
+        field.setContentDescription("Computer pairing link");
         field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         field.setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_NO);
         field.setPadding(dp(20), dp(12), dp(20), dp(12));
-        AlertDialog dialog = new AlertDialog.Builder(activity).setTitle("Connect to your PC")
-                .setMessage("On your PC, open Browser’s agent and choose Connect Phone. Paste its pairing link. Keep both devices on the same local network.")
+        AlertDialog dialog = new AlertDialog.Builder(activity).setTitle("Add a computer")
+                .setMessage("Open model sharing in Browser on the computer and paste its pairing link. For internet access, use the link with its reachable public address.")
                 .setView(field).setPositiveButton("Connect", null).setNegativeButton("Cancel", null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             if (connect(field.getText().toString())) { field.setText(""); dialog.dismiss(); }
-            else field.setError("Use the complete pairing link from your PC");
+            else field.setError("Use the complete pairing link from the computer");
         }));
         dialog.show();
+    }
+
+    private void showDevices() {
+        List<AgentConnection> devices = store.devices();
+        if (devices.isEmpty()) {
+            new AlertDialog.Builder(activity).setTitle("Model devices")
+                    .setItems(new String[]{"Add a computer", "Connect from computer"}, (dialog, index) -> {
+                        if (index == 0) showPairingInput(); else showPhoneConnection();
+                    }).setNegativeButton("Cancel", null).show();
+            return;
+        }
+        String[] names = new String[devices.size() + 1];
+        int selected = -1;
+        for (int i = 0; i < devices.size(); i++) {
+            AgentConnection device = devices.get(i);
+            names[i] = device.label() + (discovery.isNearby(device) ? " · Nearby" : "") + "\n" + device.addressLabel();
+            if (connection != null && device.identity().equals(connection.identity())) selected = i;
+        }
+        names[devices.size()] = "Connect from computer…";
+        final int[] choice = {selected};
+        AlertDialog dialog = new AlertDialog.Builder(activity).setTitle("Choose a model computer")
+                .setSingleChoiceItems(names, selected, (selectedDialog, index) -> {
+                    if (index == devices.size()) { selectedDialog.dismiss(); showPhoneConnection(); }
+                    else choice[0] = index;
+                })
+                .setPositiveButton("Use device", null).setNeutralButton("Add device", (ignored, which) -> showPairingInput())
+                .setNegativeButton("Forget", null).create();
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                if (choice[0] < 0) return;
+                AgentConnection selectedDevice = devices.get(choice[0]);
+                if (selectDevice(selectedDevice.identity())) dialog.dismiss();
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(view -> {
+                if (choice[0] < 0) return;
+                AgentConnection device = devices.get(choice[0]);
+                try {
+                    phoneInbox.forgetComputer(device.identity());
+                    store.forget(device.identity());
+                    if (connection != null && connection.identity().equals(device.identity())) {
+                        stop(); connection = null;
+                    }
+                    updatePC(); refreshPresence(); state.setText("Device forgotten"); dialog.dismiss();
+                } catch (Exception error) { state.setText("Couldn’t forget this device."); }
+            });
+        });
+        dialog.show();
+    }
+
+    boolean selectDevice(String identity) {
+        try {
+            store.select(identity); stop(); connection = store.load(); updatePC(); refreshPresence(); state.setText("Ready");
+            return true;
+        } catch (Exception error) { state.setText("Couldn’t select this device."); return false; }
     }
 
     boolean connect(String link) {
         try {
             AgentConnection proposed = AgentConnection.parse(link);
             store.save(link);
-            stop(); connection = proposed; updatePC(); state.setText("Paired · Ready");
-            append("Paired with PC at " + proposed.label() + ".");
+            stop(); connection = proposed; updatePC(); refreshPresence(); state.setText("Paired · Ready");
+            append("Saved " + proposed.label() + ". Choose it from Devices whenever you want to use its model.");
             return true;
         } catch (Exception error) {
             state.setText("Couldn’t save this pairing link. Check the link and try again.");
@@ -145,7 +213,67 @@ final class BrowserAgentPanel extends LinearLayout {
         }
     }
 
-    private void updatePC() { pc.setText(connection == null ? "No PC connected" : "PC · " + connection.label()); }
+    private void updatePC() { pc.setText(connection == null ? "No model computer selected" : connection.label()
+            + (discovery.isNearby(connection) ? " · Nearby" : " · Direct connection")); }
+
+    private void refreshPresence() {
+        if (phonePresence == null) return;
+        List<AgentConnection> devices = store.devices();
+        for (int i = 0; i < devices.size(); i++) devices.set(i, discovery.reachable(devices.get(i)));
+        phonePresence.updateDevices(devices, connection == null ? null : connection.identity());
+    }
+
+    private void attachFromComputer(String identity) {
+        if (selectDevice(identity)) { show(); state.setText("Computer connected · Ready"); }
+    }
+
+    private void showPhoneConnection() {
+        LinearLayout content = new LinearLayout(activity); content.setOrientation(VERTICAL); content.setPadding(dp(20), dp(8), dp(20), 0);
+        TextView instructions = label("Select this phone in Browser on your computer to connect its model here. Keep Browser open on this phone. For first pairing across the internet, enter this phone’s reachable address below.", 13);
+        content.addView(instructions);
+        EditText host = new EditText(activity); host.setSingleLine(true); host.setText(AgentPhoneInbox.localAddress());
+        host.setHint("Phone address"); host.setContentDescription("Phone pairing address");
+        host.setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_NO); content.addView(host);
+        TextView status = label("Port " + AgentPhoneInbox.PORT + " · Known computers can connect through the phone’s outbound connection.", 12);
+        content.addView(status);
+        AlertDialog dialog = new AlertDialog.Builder(activity).setTitle("Receive Connection")
+                .setView(content).setPositiveButton("Copy phone link", null).setNegativeButton("Done", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            try {
+                String link = phoneInbox.pairingLink(host.getText().toString().trim());
+                ((android.content.ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE))
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Browser phone pairing", link));
+                status.setText("Phone link copied. Paste it into Browser on the computer, then compare the connection codes.");
+            } catch (Exception error) { status.setText(error.getMessage()); }
+        }));
+        dialog.show();
+    }
+
+    private CompletableFuture<Boolean> approveComputer(String name, String code) {
+        if (destroyed || phoneReviewResult != null) return CompletableFuture.completedFuture(false);
+        show();
+        phoneReviewResult = new CompletableFuture<>();
+        CompletableFuture<Boolean> result = phoneReviewResult;
+        phoneReview = new AlertDialog.Builder(activity).setTitle("Connect " + name + "?")
+                .setMessage("Connection code: " + code + "\n\nAccept here, then confirm this same code on the computer. Its model will become available on this phone.")
+                .setPositiveButton("Accept", (dialog, which) -> {
+                    append("Connection code for " + name + ": " + code + ". Confirm this same code on the computer."); resolvePhoneReview(true);
+                }).setNegativeButton("Decline", (dialog, which) -> resolvePhoneReview(false))
+                .setOnCancelListener(dialog -> resolvePhoneReview(false)).create();
+        phoneReview.show();
+        main.postDelayed(() -> { if (phoneReviewResult == result) resolvePhoneReview(false); }, 60_000);
+        return result;
+    }
+
+    private void resolvePhoneReview(boolean accepted) {
+        CompletableFuture<Boolean> result = phoneReviewResult; phoneReviewResult = null;
+        if (phoneReview != null) { phoneReview.dismiss(); phoneReview = null; }
+        if (result != null) result.complete(accepted);
+    }
+
+    void resumePhoneConnection() { if (!destroyed) { phoneInbox.start(); discovery.start(); refreshPresence(); phonePresence.start(); } }
+    void pausePhoneConnection() { phonePresence.stop(); phoneInbox.stop(); discovery.stop(); resolvePhoneReview(false); }
+    String phonePairingLink(String host) throws Exception { return phoneInbox.pairingLink(host); }
     private void updateControls() {
         boolean busy = running != null;
         run.setEnabled(!busy); stop.setEnabled(busy); pair.setEnabled(!busy); task.setEnabled(!busy);
@@ -168,11 +296,12 @@ final class BrowserAgentPanel extends LinearLayout {
         if (directReply != null) {
             hideKeyboard(); log.setText(directReply); state.setText("Complete"); return;
         }
-        if (connection == null) { showPairingInput(); return; }
+        if (connection == null) { showDevices(); return; }
         hideKeyboard();
-        log.setText(""); state.setText("Running on PC…");
+        log.setText(""); state.setText("Running on " + connection.label() + "…");
         int id = ++runID;
-        AgentConnection endpoint = connection;
+        AgentConnection endpoint = discovery.reachable(connection);
+        runningEndpoint = endpoint;
         MobileBrowserAgent.Host guarded = new MobileBrowserAgent.Host() {
             @Override public CompletableFuture<MobileBrowserAgent.Snapshot> observe() { return dispatch(id, browser::observe); }
             @Override public CompletableFuture<Void> act(MobileBrowserAgent.Command command, MobileBrowserAgent.Snapshot page, boolean approved) {
@@ -190,7 +319,7 @@ final class BrowserAgentPanel extends LinearLayout {
                 main.post(() -> finish(id, "Complete", answer));
             } catch (Exception error) {
                 String message = error.getMessage();
-                if (message == null || message.isEmpty()) message = "Couldn’t reach the PC. Check Connect Phone on the PC and the local network.";
+                if (message == null || message.isEmpty()) message = "Couldn’t reach the selected computer. Keep it awake with sharing on and check its saved address is reachable.";
                 String detail = message;
                 main.post(() -> finish(id, "Couldn’t finish", detail));
             }
@@ -227,20 +356,21 @@ final class BrowserAgentPanel extends LinearLayout {
         reviewResult = null;
         if (review != null) { review.dismiss(); review = null; }
         if (result != null) result.complete(approved);
-        if (running != null) state.setText("Running on PC…");
+        if (running != null) state.setText("Running on " + (connection == null ? "computer" : connection.label()) + "…");
     }
     void stop() {
         runID++;
         if (running != null) { running.cancel(true); running = null; state.setText("Stopped"); append("Stopped by you."); }
         if (connection != null) connection.cancel();
+        if (runningEndpoint != null) { runningEndpoint.cancel(); runningEndpoint = null; }
         browser.cancel(); resolveReview(false); updateControls();
     }
     private void finish(int id, String status, String text) {
         if (id != runID || destroyed) return;
         resolveReview(false);
-        running = null; state.setText(status); append(text); updateControls();
+        running = null; runningEndpoint = null; state.setText(status); append(text); updateControls();
     }
-    void destroy() { destroyed = true; stop(); worker.shutdownNow(); }
+    void destroy() { destroyed = true; stop(); phonePresence.destroy(); phoneInbox.destroy(); discovery.stop(); resolvePhoneReview(false); worker.shutdownNow(); }
     private void hideKeyboard() {
         ((android.view.inputmethod.InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE))
                 .hideSoftInputFromWindow(task.getWindowToken(), 0);

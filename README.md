@@ -22,11 +22,27 @@ Simple greetings such as `hola` receive an immediate reply without reading the p
 
 Browser's own inference engine implements GGUF loading, byte-level BPE, and the Qwen2 transformer in Swift and C. It uses Accelerate for matrix operations and runs in the browser process. Hugging Face supplies the model file; the task and page text go to the local model. The agent has a 2,048-token context and a ten-step limit. On long or dense pages, scroll closer to the relevant section or give the agent a more specific task. Website Compatibility currently exposes elements in the main document; some sites require manual interaction.
 
-### Use the Mac's model from Android
+### Direct model connections (development builds)
 
-Connect your Mac and phone to the same Wi-Fi. Open **AI Agent** in the Mac browser's toolbar, click **Connect Phone…** beside Run and Stop, then choose **Start Sharing**. Scan the QR code with your phone's camera and open it in Browser, or open **AI → Connect PC** in the Android browser and paste the pairing link. Keep desktop Browser open while using the phone's agent. **Stop Sharing** disconnects the phone, and starting sharing again creates a new pairing link.
+The current source builds let Android and macOS select a remembered computer by name. Device discovery, pairing, socket transport, and router mapping are implemented in this project using platform APIs. No account, hosted server, relay, STUN server, external discovery service, or networking SDK is required. The published v0.2.2 downloads still have the earlier same-network phone pairing interface.
 
-Pairing connects the Android browser's agent to the model running on your Mac. The phone sends task and page observations in authenticated encrypted messages, and carries out the resulting browser actions on the phone. The pairing link grants access to this model session. Sharing starts only when you enable it and ends when Browser quits.
+1. On the computer with the model, open **AI Agent → Devices… → Share This Mac’s Model… → Start Sharing**. Keep Browser running and the computer awake.
+2. On your phone or another Mac, open **AI Agent → Devices**, then add the pairing link once. A phone camera can also open the QR code in Browser. Pairing links contain a secret; share them only with your own devices.
+3. Select the computer's name in **Devices**. Future tasks use its model while browser actions stay on the device where you started the task. On Mac, choose **This Mac** to return to local inference.
+
+You can also start from the **computer**: open **Devices → Connect a Phone…**, choose a nearby phone, and confirm the matching code on both devices the first time. On the phone, open Browser's **Devices → Connect from Computer** to make it available. The model stays on the computer; the phone becomes its client. An already paired phone keeps an encrypted outbound presence connection to its remembered computers while Browser is open, so the computer can select it over the internet even if the phone's network blocks incoming connections. For first-time remote pairing, add the computer's reachable pairing link on the phone; alternatively, use a directly reachable phone invitation link.
+
+Nearby discovery uses Bonjour/mDNS on the local network. It can refresh a paired computer's nearby route without changing its saved internet address or pairing key. Pairing and your selected device survive restarts in the system Keychain (Mac) or an Android Keystore encrypted file. Sharing still starts only when you turn it on. **Stop Sharing** closes connections; **Reset Pairing** revokes every existing pairing link.
+
+For **internet access**, the receiving computer needs a directly reachable address. In **Share Model**, use **Find Internet Address** to ask your own router for a temporary UPnP TCP mapping. This contacts only devices on your local network. On supported routers, Browser renews its one-hour lease while sharing and removes the mapping when sharing stops. If Browser quits unexpectedly, the lease expires automatically.
+
+Alternatively, enter a global IPv6 address and allow TCP **38765** in the receiving network's firewall, or enter your router's public IPv4 address and forward its chosen external TCP port to **38765** on the Mac. Choose that address in the sharing window before copying or scanning the pairing link. Browser also lists global IPv6 addresses available on the computer. Mac firewall permission may be needed for incoming connections.
+
+With no external discovery or relay service, two devices behind carrier-grade NAT or blocked incoming connections cannot always connect. The app does not bypass those network restrictions. If the public address changes, add the updated pairing link again; the stable device identity updates the existing entry. Android currently consumes a computer's model rather than hosting local inference.
+
+Model requests and replies use authenticated AES-256-GCM encryption with random nonces and a response bound to its request. The sharing computer remembers used request nonces across restarts to reject replayed messages. The directory and pairing keys stay on your devices; only encrypted model messages cross the direct connection.
+
+The reciprocal integration fixture uses an emulator and the real downloaded Mac model. After building the debug app and instrumentation APK, run `python3 scripts/test-phone-connection.py --serial emulator-5580`. It compares the codes, verifies the Mac-to-phone model handoff, obtains an answer from the actual model, then deselects the computer on the phone and verifies that selecting the phone on the Mac restores the connection.
 
 ## Android download and install
 

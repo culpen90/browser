@@ -311,10 +311,19 @@ extension BrowserWindowController {
         var running: Task<Void, Never>?
         sidebar.onRun = { [weak self, weak sidebar] task, modelURL in
             guard let self, let sidebar else { return }
+            let selectedDevice = BrowserAgentDevices.shared.effectiveSelected
             running = Task {
                 defer { running = nil }
                 do {
-                    let result = try await BrowserAgentController(window: self).run(
+                    let generator: BrowserAgentController.Generator = { url, system, user, tokens, format in
+                        if let selectedDevice {
+                            return try await selectedDevice.generate(system: system, user: user,
+                                                                     maxTokens: tokens, commandFormat: format)
+                        }
+                        return try await BrowserAgentModel.shared.generate(at: url, system: system, user: user,
+                                                                           maxTokens: tokens, commandFormat: format)
+                    }
+                    let result = try await BrowserAgentController(window: self, generate: generator).run(
                         task, modelURL: modelURL ?? BrowserAgentModel.defaultURL,
                         onActivity: { [weak sidebar] in sidebar?.appendActivity($0) },
                         approve: { [weak sidebar] in await sidebar?.requestApproval($0) ?? false })

@@ -34,6 +34,7 @@ public class CompatibilityTest {
     private MainActivity activity;
     private Fixture fixture;
     @Before public void launch() throws Exception {
+        org.junit.Assume.assumeNotNull(android.webkit.WebView.getCurrentWebViewPackage());
         fixture = new Fixture();
         Intent intent = new Intent(Intent.ACTION_MAIN).setClass(instrumentation.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

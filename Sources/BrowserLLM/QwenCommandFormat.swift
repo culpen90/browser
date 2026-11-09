@@ -3,6 +3,11 @@ public struct QwenCommandFormat: Sendable {
     private let exact: [[UInt8]]
     private let withText: [[UInt8]]
 
+    public var exactCommands: [String] { exact.map { String(decoding: $0, as: UTF8.self) } }
+    public var withTextCommands: [String] {
+        withText.map { String(decoding: $0.dropLast(), as: UTF8.self) }
+    }
+
     public init(exact: [String], withText: [String]) {
         self.exact = exact.map { Array($0.utf8) }
         self.withText = withText.map { Array(($0 + " ").utf8) }

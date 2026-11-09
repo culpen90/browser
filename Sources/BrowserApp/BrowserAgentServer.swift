@@ -4,60 +4,90 @@ import Darwin
 import Foundation
 import Network
 
-/// An explicitly enabled LAN endpoint. Page text is authenticated and encrypted
+/// An explicitly enabled direct peer endpoint. Page text is authenticated and encrypted
 /// before it enters HTTP, including when the paired devices share an open network.
 @MainActor
 final class BrowserAgentServer {
     typealias Generator = (URL, String, String, Int, QwenCommandFormat?) async throws -> String
 
-    static let shared = BrowserAgentServer()
+    static let sharingPort: UInt16 = 38_765
+    static let shared = BrowserAgentServer(persistentIdentity: true, listenPort: sharingPort, advertise: true,
+                                           phonePresence: .shared)
     static let requestAAD = Data("BrowserAgent/v1 request".utf8)
     static let responseAAD = Data("BrowserAgent/v1 response".utf8)
 
     var onChange: (() -> Void)?
+    /// Optional diagnostics for verifying the direct network path without logging request content.
+    var onPeerAuthenticated: ((String, String) -> Void)?
     private(set) var isRunning = false
     private(set) var addresses: [String] = []
     private(set) var port: UInt16?
     private(set) var modelURL: URL?
     private(set) var status = "Model sharing is off."
+    private(set) var deviceID = UUID().uuidString
+    let deviceName = String(decoding: (Host.current().localizedName ?? "My Mac").utf8.prefix(160), as: UTF8.self)
 
     var pairingURI: URL? { pairingURIs.first }
     var pairingURIs: [URL] {
         guard isRunning, let port, let key else { return [] }
+        return addresses.compactMap { pairingURI(host: $0, port: port, key: key) }
+    }
+
+    func pairingURI(host: String, port: UInt16) -> URL? {
+        guard isRunning, let key else { return nil }
+        return pairingURI(host: host, port: port, key: key)
+    }
+
+    private func pairingURI(host: String, port: UInt16, key: SymmetricKey) -> URL? {
         let encoded = key.withUnsafeBytes { Data($0) }.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        return addresses.compactMap { address in
-            var uri = URLComponents()
-            uri.scheme = "browseragent"
-            uri.host = "pair"
-            uri.queryItems = [URLQueryItem(name: "host", value: address),
+        var uri = URLComponents()
+        uri.scheme = "browseragent"
+        uri.host = "pair"
+        uri.queryItems = [URLQueryItem(name: "host", value: host),
                               URLQueryItem(name: "port", value: String(port)),
-                              URLQueryItem(name: "key", value: encoded)]
-            return uri.url
-        }
+                              URLQueryItem(name: "key", value: encoded),
+                              URLQueryItem(name: "id", value: deviceID),
+                              URLQueryItem(name: "name", value: deviceName)]
+        return uri.url
     }
 
     private let generate: Generator
     private let discoverAddresses: @MainActor () -> [String]
     private let networkQueue = DispatchQueue(label: "BrowserAgent.ModelSharing")
     private var listener: NWListener?
+    private var service: NetService?
+    private let persistentIdentity: Bool
+    private let listenPort: UInt16
+    private let advertise: Bool
+    private let identityStore: IdentityStore
+    private let phonePresence: BrowserAgentPhonePresence
     private var sessionID = UUID()
     private var key: SymmetricKey?
     private var clients: [UUID: Client] = [:]
     private var seenNonces = Set<Data>()
+    private var phoneNonces: [Data: Date] = [:]
     private var inference: (client: UUID, task: Task<Void, Never>)?
     private static let maximumBody = 32_768
     private static let maximumHeader = 8_192
 
-    init(discoverAddresses: @escaping @MainActor () -> [String] = { BrowserAgentServer.lanAddresses() },
+    init(persistentIdentity: Bool = false, listenPort: UInt16 = 0, advertise: Bool = false,
+         identityStore: IdentityStore = .keychain,
+         phonePresence: BrowserAgentPhonePresence? = nil,
+         discoverAddresses: @escaping @MainActor () -> [String] = { BrowserAgentServer.localAddresses() },
          generate: @escaping Generator = { url, system, user, tokens, format in
         try await BrowserAgentModel.shared.generate(at: url, system: system, user: user,
                                                    maxTokens: tokens, commandFormat: format)
     }) {
         self.discoverAddresses = discoverAddresses
         self.generate = generate
+        self.persistentIdentity = persistentIdentity
+        self.listenPort = listenPort
+        self.advertise = advertise
+        self.identityStore = identityStore
+        self.phonePresence = phonePresence ?? BrowserAgentPhonePresence()
     }
 
     func start(modelURL: URL) throws {
@@ -69,14 +99,28 @@ final class BrowserAgentServer {
             throw BrowserAgentModel.ModelError.missing
         }
         let addresses = discoverAddresses()
-        guard !addresses.isEmpty else { throw ServerError.noLocalNetwork }
+        let storedIdentity: StoredIdentity
+        if persistentIdentity, let data = try identityStore.load() {
+            storedIdentity = try JSONDecoder().decode(StoredIdentity.self, from: data)
+            guard storedIdentity.key.count == 32, UUID(uuidString: storedIdentity.id) != nil,
+                  storedIdentity.nonces.count <= 10_000, storedIdentity.nonces.allSatisfy({ $0.count == 12 }) else {
+                throw ServerError.invalidIdentity
+            }
+        } else {
+            storedIdentity = StoredIdentity(id: deviceID, key: SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }, nonces: [])
+            if persistentIdentity {
+                try identityStore.save(JSONEncoder().encode(storedIdentity))
+            }
+        }
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.any), port: .any)
-        let listener = try NWListener(using: parameters)
+        parameters.allowLocalEndpointReuse = true
+        let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: listenPort)!)
         self.listener = listener
         self.addresses = addresses
         self.modelURL = modelURL
-        key = SymmetricKey(size: .bits256)
+        deviceID = storedIdentity.id
+        key = SymmetricKey(data: storedIdentity.key)
+        seenNonces = Set(storedIdentity.nonces)
         status = "Starting model sharing…"
         let identity = sessionID
         listener.stateUpdateHandler = { [weak self] state in
@@ -96,6 +140,8 @@ final class BrowserAgentServer {
         sessionID = UUID()
         listener?.cancel()
         listener = nil
+        service?.stop()
+        service = nil
         inference?.task.cancel()
         inference = nil
         for client in clients.values {
@@ -104,6 +150,8 @@ final class BrowserAgentServer {
         }
         clients.removeAll()
         seenNonces.removeAll()
+        phoneNonces.removeAll()
+        phonePresence.removeAll()
         key = nil
         port = nil
         modelURL = nil
@@ -113,17 +161,32 @@ final class BrowserAgentServer {
         onChange?()
     }
 
+    /// Revoke all existing pairing links without changing the device's name.
+    func resetPairing() throws {
+        stop()
+        try identityStore.remove()
+        deviceID = UUID().uuidString
+    }
+
     private func listenerChanged(_ state: NWListener.State, identity: UUID) {
         guard sessionID == identity else { return }
         switch state {
         case .ready:
             port = listener?.port?.rawValue
             isRunning = port != nil
-            status = "Ready for a paired phone on this network."
+            status = "Ready for direct encrypted connections."
+            if advertise, let port {
+                let service = NetService(domain: "local.", type: "_browseragent._tcp.", name: deviceID, port: Int32(port))
+                service.setTXTRecord(NetService.data(fromTXTRecord: [
+                    "id": Data(deviceID.utf8), "name": Data(deviceName.utf8)
+                ]))
+                self.service = service
+                service.publish()
+            }
             onChange?()
         case .failed:
             stop()
-            status = "Model sharing could not start. Check the local network and try again."
+            status = "Model sharing could not start. Check that TCP port \(listenPort) is available."
             onChange?()
         default:
             break
@@ -131,7 +194,7 @@ final class BrowserAgentServer {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard isRunning, clients.count < 8, Self.isLocalPeer(connection.endpoint) else {
+        guard isRunning, clients.count < 8 else {
             connection.cancel()
             return
         }
@@ -182,9 +245,10 @@ final class BrowserAgentServer {
             }
             guard separator.upperBound <= Self.maximumHeader,
                   let header = String(data: client.buffer[..<separator.lowerBound], encoding: .ascii),
-                  let length = Self.contentLength(header) else { reject(client); return true }
+                  let parsed = Self.parseHeader(header) else { reject(client); return true }
             client.bodyStart = separator.upperBound
-            client.bodyLength = length
+            client.bodyLength = parsed.length
+            client.isPhoneHeartbeat = parsed.phone
         }
         let start = client.bodyStart!
         let length = client.bodyLength
@@ -198,10 +262,11 @@ final class BrowserAgentServer {
         return true
     }
 
-    private static func contentLength(_ header: String) -> Int? {
+    private static func parseHeader(_ header: String) -> (length: Int, phone: Bool)? {
         let lines = header.components(separatedBy: "\r\n")
-        guard lines.count <= 33, lines.first == "POST /v1/generate HTTP/1.1" ||
-                lines.first == "POST /v1/generate HTTP/1.0" else { return nil }
+        guard lines.count <= 33, let first = lines.first,
+              ["POST /v1/generate HTTP/1.1", "POST /v1/generate HTTP/1.0",
+               "POST /v1/phone HTTP/1.1", "POST /v1/phone HTTP/1.0"].contains(first) else { return nil }
         var length: Int?
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":"), colon != line.startIndex,
@@ -218,7 +283,7 @@ final class BrowserAgentServer {
                 length = count
             }
         }
-        return length
+        return length.map { ($0, first.hasPrefix("POST /v1/phone ")) }
     }
 
     private func handle(_ body: Data, client: Client) {
@@ -229,14 +294,21 @@ final class BrowserAgentServer {
             return
         }
         let nonce = Data(body.prefix(12))
-        guard seenNonces.count < 10_000 else {
-            status = "This sharing session has reached its limit. Stop sharing and connect again."
-            onChange?()
-            reject(client)
-            return
-        }
-        guard seenNonces.insert(nonce).inserted else {
-            reject(client)
+        if client.isPhoneHeartbeat {
+            do {
+                let request = try JSONDecoder().decode(PhoneHeartbeat.self, from: plaintext)
+                let now = Date()
+                phoneNonces = phoneNonces.filter { now.timeIntervalSince($0.value) < 120 }
+                guard abs(now.timeIntervalSince1970 - request.createdAt) <= 60,
+                      phoneNonces.count < 4_096, phoneNonces[nonce] == nil else { reject(client); return }
+                phoneNonces[nonce] = now
+                let token = try phonePresence.heartbeat(id: request.id, name: request.name)
+                onPeerAuthenticated?(client.remoteHost, "/v1/phone")
+                respond(Response(attach: token), status: 200, client: client, key: key, requestNonce: nonce)
+            } catch {
+                respond(Response(error: "The phone identity is invalid."), status: 400,
+                        client: client, key: key, requestNonce: nonce)
+            }
             return
         }
         let request: Request
@@ -248,6 +320,27 @@ final class BrowserAgentServer {
                     client: client, key: key, requestNonce: nonce)
             return
         }
+        guard seenNonces.count < 10_000 else {
+            status = persistentIdentity ? "Pairing has reached its request limit. Reset Pairing and pair your devices again."
+                : "This sharing session has reached its limit. Stop sharing and connect again."
+            onChange?()
+            reject(client)
+            return
+        }
+        guard seenNonces.insert(nonce).inserted else {
+            reject(client)
+            return
+        }
+        if persistentIdentity {
+            do {
+                let stored = StoredIdentity(id: deviceID, key: key.withUnsafeBytes { Data($0) }, nonces: Array(seenNonces))
+                try identityStore.save(JSONEncoder().encode(stored))
+            } catch {
+                reject(client)
+                return
+            }
+        }
+        onPeerAuthenticated?(client.remoteHost, "/v1/generate")
         guard inference == nil else {
             respond(Response(error: "The Mac is busy answering another request. Try again shortly."), status: 429,
                     client: client, key: key, requestNonce: nonce)
@@ -320,11 +413,6 @@ final class BrowserAgentServer {
         }
     }
 
-    private static func isLocalPeer(_ endpoint: NWEndpoint) -> Bool {
-        guard case .hostPort(let host, _) = endpoint, case .ipv4(let address) = host else { return false }
-        return isPrivateIPv4(address.debugDescription) || address == IPv4Address.loopback
-    }
-
     private static func isPrivateIPv4(_ address: String) -> Bool {
         let bytes = address.split(separator: ".").compactMap { UInt8($0) }
         guard bytes.count == 4 else { return false }
@@ -332,7 +420,7 @@ final class BrowserAgentServer {
             bytes[0] == 172 && (16...31).contains(bytes[1])
     }
 
-    private static func lanAddresses() -> [String] {
+    private static func localAddresses() -> [String] {
         var interfaces: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaces) == 0 else { return [] }
         defer { freeifaddrs(interfaces) }
@@ -341,28 +429,56 @@ final class BrowserAgentServer {
         while let entry = current {
             defer { current = entry.pointee.ifa_next }
             let interface = entry.pointee
-            guard let socket = interface.ifa_addr, socket.pointee.sa_family == UInt8(AF_INET),
+            guard let socket = interface.ifa_addr,
+                  [UInt8(AF_INET), UInt8(AF_INET6)].contains(socket.pointee.sa_family),
                   interface.ifa_flags & UInt32(IFF_UP) != 0,
                   interface.ifa_flags & UInt32(IFF_LOOPBACK) == 0 else { continue }
             var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             guard getnameinfo(socket, socklen_t(socket.pointee.sa_len), &buffer, socklen_t(buffer.count), nil, 0,
                               NI_NUMERICHOST) == 0 else { continue }
             let address = String(cString: buffer)
-            if isPrivateIPv4(address) { result.append((String(cString: interface.ifa_name), address)) }
+            // Global IPv6 addresses can be reached directly when the router's firewall permits it.
+            // Link-local IPv6 needs an interface scope, so prefer IPv4 for nearby pairing.
+            if isPrivateIPv4(address) || (socket.pointee.sa_family == UInt8(AF_INET6) &&
+                (address.hasPrefix("2") || address.hasPrefix("3"))) {
+                result.append((String(cString: interface.ifa_name), address))
+            }
         }
         let ordered = result.sorted { $0.name == $1.name ? $0.address < $1.address : $0.name < $1.name }
         var seen = Set<String>()
         return ordered.map(\.address).filter { seen.insert($0).inserted }
     }
 
+    private struct StoredIdentity: Codable {
+        let id: String
+        let key: Data
+        let nonces: [Data]
+    }
+
+    struct IdentityStore {
+        var load: () throws -> Data?
+        var save: (Data) throws -> Void
+        var remove: () throws -> Void
+
+        static let keychain = IdentityStore(
+            load: { try BrowserAgentSecrets.data(for: "sharing-identity-v1") },
+            save: { try BrowserAgentSecrets.set($0, for: "sharing-identity-v1") },
+            remove: { try BrowserAgentSecrets.remove("sharing-identity-v1") })
+    }
+
     @MainActor
     private final class Client {
         let id = UUID()
         let connection: NWConnection
+        var remoteHost: String {
+            guard case .hostPort(let host, _) = connection.endpoint else { return "" }
+            return host.debugDescription
+        }
         var buffer = Data()
         var bodyStart: Int?
         var bodyLength = 0
         var handling = false
+        var isPhoneHeartbeat = false
         var timeout: Task<Void, Never>?
 
         init(connection: NWConnection) { self.connection = connection }
@@ -394,14 +510,17 @@ final class BrowserAgentServer {
     private struct Response: Encodable {
         var text: String?
         var error: String?
+        var attach: String?
     }
 
+    private struct PhoneHeartbeat: Decodable { let id: String; let name: String; let createdAt: Double }
+
     private enum ServerError: LocalizedError {
-        case noLocalNetwork, invalidRequest, responseTooLarge
+        case invalidIdentity, invalidRequest, responseTooLarge
 
         var errorDescription: String? {
             switch self {
-            case .noLocalNetwork: return "Join the same Wi-Fi or local network as your phone, then try sharing again."
+            case .invalidIdentity: return "The saved pairing identity is invalid. Reset pairing and try again."
             case .invalidRequest: return "The model request is invalid."
             case .responseTooLarge: return "The model response was too large."
             }
