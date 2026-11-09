@@ -100,6 +100,8 @@ public final class PageLoader {
     public LoadedPage load(URI uri, Cancellation cancellation) throws IOException {
         if (cancellation == null) throw new IllegalArgumentException("A cancellation token is required.");
         cancellation.check();
+        String query = SearchPage.query(uri);
+        if (query != null) return SearchPage.load(uri, query, cancellation);
         long deadline = System.nanoTime() + LOAD_NANOS;
         URI transportUri = uri;
         String builtin = uri.toString().split("#", 2)[0];

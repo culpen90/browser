@@ -249,11 +249,7 @@ struct BrowserAgentController {
             case .click(let id): return .click(id)
             case .type(let id, let text): return .type(id, text)
             case .open(let url): return .navigate(url)
-            case .search(let query):
-                var address = URLComponents(string: "https://html.duckduckgo.com/html/")!
-                address.queryItems = [URLQueryItem(name: "q", value: query)]
-                guard let url = address.url else { throw AgentError.invalidReply }
-                return .navigate(url)
+            case .search(let query): return .search(query)
             case .back: return .back
             case .scroll(let pages): return .scroll(pages)
             case .compatibility: return .enableCompatibility
@@ -277,7 +273,6 @@ struct BrowserAgentController {
             switch self {
             case .open(let url):
                 return BrowserAgentController.taskLinks(in: task).contains(url) ? nil : "Open this address?\n\n\(url.absoluteString)"
-            case .search(let query): return "Send this search to DuckDuckGo?\n\n\(query)"
             default: return nil
             }
         }

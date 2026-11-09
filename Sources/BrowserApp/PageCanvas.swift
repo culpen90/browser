@@ -34,6 +34,7 @@ final class PageCanvas: NSView {
     private var sheet = StyleSheet(css: "")
     private var baseURL = URL(string: "browser:home")!
     private var images: [URL: NSImage] = [:]
+    private var maximumLayoutWidth: CGFloat?
     private(set) var pageLayout = PageLayout()
     private var tracking: NSTrackingArea?
     private var lastWidth: CGFloat = 0
@@ -109,11 +110,13 @@ final class PageCanvas: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func show(document: HTMLDocument, css: String, baseURL: URL, images: [URL: NSImage] = [:]) {
+    func show(document: HTMLDocument, css: String, baseURL: URL, images: [URL: NSImage] = [:],
+              maximumLayoutWidth: CGFloat? = nil) {
         self.document = document
         self.sheet = StyleSheet(css: css)
         self.baseURL = baseURL
         self.images = images
+        self.maximumLayoutWidth = maximumLayoutWidth
         focusedLink = nil
         relayout()
     }
@@ -122,7 +125,8 @@ final class PageCanvas: NSView {
         guard let document else { return }
         let width = max(240, enclosingScrollView?.contentSize.width ?? bounds.width)
         lastWidth = width
-        pageLayout = CanvasLayouter(width: width, sheet: sheet, baseURL: baseURL, images: images).layout(document)
+        pageLayout = CanvasLayouter(width: min(width, maximumLayoutWidth ?? width), sheet: sheet,
+                                    baseURL: baseURL, images: images).layout(document)
         setFrameSize(NSSize(width: width, height: max(pageLayout.height, enclosingScrollView?.contentSize.height ?? 600)))
         needsDisplay = true
         window?.invalidateCursorRects(for: self)

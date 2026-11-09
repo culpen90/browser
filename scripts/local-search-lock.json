@@ -1,0 +1,71 @@
+{
+  "searxng": {
+    "revision": "57ff753ad416b7bf27e59d72ae8c7cac93b56be4",
+    "version": "2026.11.9+57ff753ad",
+    "url": "https://codeload.github.com/searxng/searxng/tar.gz/57ff753ad416b7bf27e59d72ae8c7cac93b56be4",
+    "sha256": "711ee0c77457ff9af09058e512a43452fd7394b68aab307415674791cc9037b0"
+  },
+  "python": {
+    "version": "3.13.18",
+    "release": "20261026",
+    "source": {
+      "url": "https://codeload.github.com/astral-sh/python-build-standalone/tar.gz/refs/tags/20261026",
+      "sha256": "68de4af184e78f6338a91ddb48570da92cbdc24138ff44527d58a1e23a4e86e9"
+    },
+    "archives": {
+      "arm64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "8392b6ea51d94391befb2c31ebe75463f045d0b69dfcf5e1bb3234e1f5fa3405"
+      },
+      "x86_64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "7412c19d896c99431b74a18a5643e110449a7f9590fbab179c3e5ab27b9aa9e3"
+      }
+    }
+  },
+  "wheels": {
+    "all": {
+      "annotated-doc": ["117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101", "https://files.pythonhosted.org/packages/3e/30/e900b21425a860e195f32e37657aa1f7c7f2b1bfb26f03ca209b90933c06/annotated_doc-0.0.5-py3-none-any.whl"],
+      "babel": ["e2b422b277c2b9a9630c1d7903c2a00d0830c409c59ac8cae9081c92f1aeba35", "https://files.pythonhosted.org/packages/77/f5/21d2de20e8b8b0408f0681956ca2c69f1320a3848ac50e6e7f39c6159675/babel-2.18.0-py3-none-any.whl"],
+      "blinker": ["ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc", "https://files.pythonhosted.org/packages/10/cb/f2ad4230dc2eb1a74edf38f1a38b9b52277f75bef262d8908e60d957e13c/blinker-1.9.0-py3-none-any.whl"],
+      "certifi": ["e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1", "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl"],
+      "click": ["8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37", "https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl"],
+      "flask": ["f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c", "https://files.pythonhosted.org/packages/7f/9c/34f6962f9b9e9c71f6e5ed806e0d0ff03c9d1b0b2340088a0cf4bce09b18/flask-3.1.3-py3-none-any.whl"],
+      "flask-babel": ["638194cf91f8b301380f36d70e2034c77ee25b98cb5d80a1626820df9a6d4625", "https://files.pythonhosted.org/packages/14/c2/e0ab5abe37882e118482884f2ec660cd06da644ddfbceccf5f88f546b574/flask_babel-4.0.0-py3-none-any.whl"],
+      "isodate": ["28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15", "https://files.pythonhosted.org/packages/15/aa/0aca39a37d3c7eb941ba736ede56d689e7be91cab5d9ca846bde3999eba6/isodate-0.7.2-py3-none-any.whl"],
+      "itsdangerous": ["c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef", "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl"],
+      "jinja2": ["85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl"],
+      "markdown-it-py": ["9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a", "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl"],
+      "mdurl": ["84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl"],
+      "pycparser": ["a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e", "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl"],
+      "pygments": ["2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9", "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl"],
+      "python-dateutil": ["3c79630202e4152c6add678446984236efe4f57e84d8e892aab0637bab82e9fd", "https://files.pythonhosted.org/packages/5a/17/cebee01d1c0c1441174cf0456ddc91b280d79acb65340c05e41d77866ee8/python_dateutil-3.0.0-py2.py3-none-any.whl"],
+      "pytz": ["7fed3fee8fd6bd4a2b7b75a8d56021d0624127bf69bd5691f115db929ac570b3", "https://files.pythonhosted.org/packages/b6/25/564f3fc5b70c1398d706c51f2b1470d0ea0b1b2f96fee67877b6f5bdf3b6/pytz-2026.6-py2.py3-none-any.whl"],
+      "rich": ["33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb", "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl"],
+      "shellingham": ["7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl"],
+      "six": ["4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl"],
+      "typer": ["e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff", "https://files.pythonhosted.org/packages/07/ea/2e31b67051e91a133189e9c000c222502ddc6969856416de0d095de4c0b0/typer-0.27.3-py3-none-any.whl"],
+      "typing-extensions": ["481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8", "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl"],
+      "tzdata": ["0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec", "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl"],
+      "valkey": ["e2691541c6e1503b53c714ad9a35551ac9b7c0bbac93865f063dbc859a46de92", "https://files.pythonhosted.org/packages/d0/a2/252afa4da08c714460f49e943070f86a02931f99f886182765194002fe33/valkey-6.1.1-py3-none-any.whl"],
+      "werkzeug": ["6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab", "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl"],
+      "whitenoise": ["fc5e8c572e33ebf24795b47b6a7da8da3c00cff2349f5b04c02f28d0cc5a3cc2", "https://files.pythonhosted.org/packages/db/eb/d5583a11486211f3ebd4b385545ae787f32363d453c19fffd81106c9c138/whitenoise-6.12.0-py3-none-any.whl"]
+    },
+    "arm64": {
+      "cffi": ["19ee6127ee34de7d83ce3d371ebc5ed91addbdcc39f9ab15ce4eb35a4e534971", "https://files.pythonhosted.org/packages/55/41/4c7042f317b9217502988f0873af87e16ad606dc20f84e546e3e6ce9764c/cffi-2.1.1-cp313-cp313-macosx_11_0_arm64.whl"],
+      "curl-cffi": ["88cb5e34eb23eb2106711b06df68027209c72be709df239c6029345551e0acfd", "https://files.pythonhosted.org/packages/dc/ab/cd7e71bc96c36521193d3dcd38e1a08a9939538fc34b50ba81f30201f9b3/curl_cffi-0.17.0-cp310-abi3-macosx_11_0_arm64.whl"],
+      "lxml": ["3a48093cdb058a93af842ede9703520e810b05dcd0fc6d7190a06376c3bfb6bd", "https://files.pythonhosted.org/packages/52/05/3ef45db776baea068044c799bbba68f3ca00a440c0e930a17c572f3d9639/lxml-6.1.3-cp313-cp313-macosx_10_13_universal2.whl"],
+      "markupsafe": ["73e77980c7207854f00fc4e71fb1626868d5740ab4012623d55c7a99ad122a72", "https://files.pythonhosted.org/packages/ca/e0/4030bea613677e333c8a2c901fd405055f657f9d06acba5b7357984b6ef7/markupsafe-3.0.4-cp313-cp313-macosx_11_0_arm64.whl"],
+      "msgspec": ["5aa24eb475d070ecbbe5b21080fc3ce4b0b76c60de25cfe0c9678d8fb44bb42f", "https://files.pythonhosted.org/packages/cc/e3/357baa8d2a9164a98dfd7ef9d3a58125df0ed981be909945bdd337be7194/msgspec-0.22.0-cp313-cp313-macosx_11_0_arm64.whl"],
+      "pyyaml": ["2283a07e2c21a2aa78d9c4442724ec1eb15f5e42a723b99cb3d822d48f5f7ad1", "https://files.pythonhosted.org/packages/b1/16/95309993f1d3748cd644e02e38b75d50cbc0d9561d21f390a76242ce073f/pyyaml-6.0.3-cp313-cp313-macosx_11_0_arm64.whl"]
+    },
+    "x86_64": {
+      "cffi": ["9d2055050ea716bd38b7f7f1579c275386646b4894c155a3e2f3cd62ed41b7c6", "https://files.pythonhosted.org/packages/a7/46/2e5fdde8555706dd98139a910ca11be02809f3f605ce956f655d0214e100/cffi-2.1.1-cp313-cp313-macosx_10_15_x86_64.whl"],
+      "curl-cffi": ["56d622930eac5cee4cc6ebe63eaba3ecca65a2c73aa6bdf099c2ffae55ee988c", "https://files.pythonhosted.org/packages/c6/f8/6e289cc68d943c4625732eb253bdeec92c5022c7d5ea9215c0581c526789/curl_cffi-0.17.0-cp310-abi3-macosx_10_9_x86_64.whl"],
+      "lxml": ["887c021d9a977cff89cb273047c1352997b772a8908a25c21836861f69b92be1", "https://files.pythonhosted.org/packages/8c/a5/eee2fc77eee5ea68e4a4334b1def1781a3beaeefd3d98e81b4a38dc447b7/lxml-6.1.3-cp313-cp313-macosx_10_13_x86_64.whl"],
+      "markupsafe": ["2d1b7d9308288661f56672b1b157d75fc536714d3638487bbea17b6318a78248", "https://files.pythonhosted.org/packages/cc/72/15f2e5ec9cf2eb00d5cdfe968d94e4156a7bd7303832c3f3b2c403a36839/markupsafe-3.0.4-cp313-cp313-macosx_10_13_x86_64.whl"],
+      "msgspec": ["f13c127a945479bc9db057eb253b8851075c8e1ae07ffc967bfa1c5676203a86", "https://files.pythonhosted.org/packages/7f/62/5374fba2ede0408f4bd8b9b3a6c8464f8d0ea7ae9a2a064bd81ca492bd1e/msgspec-0.22.0-cp313-cp313-macosx_10_13_x86_64.whl"],
+      "pyyaml": ["8da9669d359f02c0b91ccc01cac4a67f16afec0dac22c2ad09f46bee0697eba8", "https://files.pythonhosted.org/packages/d1/11/0fd08f8192109f7169db964b5707a2f1e8b745d4e239b784a5a1dd80d1db/pyyaml-6.0.3-cp313-cp313-macosx_10_13_x86_64.whl"]
+    }
+  }
+}

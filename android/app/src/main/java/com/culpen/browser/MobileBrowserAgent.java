@@ -4,7 +4,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -105,7 +104,7 @@ final class MobileBrowserAgent {
             switch (verb) {
                 case "TYPE": return element == null ? null : "Enter this text into “" + element.label + "” on " + page.url + "?\n\n" + text;
                 case "CLICK": return element != null && element.kind.equals("button") ? "Click “" + element.label + "” on " + page.url + "?" : null;
-                case "SEARCH": return "Send this search to DuckDuckGo?\n\n" + text;
+                case "SEARCH": return "Send this query to Mwmbl using Browser Search?\n\n" + text;
                 case "OPEN": return task.contains(text) ? null : "Open this address?\n\n" + text;
                 default: return null;
             }
@@ -125,12 +124,6 @@ final class MobileBrowserAgent {
             }
         }
 
-        URI navigation() {
-            try {
-                return URI.create(verb.equals("SEARCH") ? "https://html.duckduckgo.com/html/?q="
-                        + URLEncoder.encode(text, StandardCharsets.UTF_8.name()) : text);
-            } catch (java.io.UnsupportedEncodingException error) { throw new AssertionError(error); }
-        }
     }
 
     private final AgentConnection connection;

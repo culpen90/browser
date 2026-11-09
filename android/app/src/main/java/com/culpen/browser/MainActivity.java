@@ -16,6 +16,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Message;
+import android.util.LruCache;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -45,6 +46,7 @@ import com.culpen.browser.engine.Address;
 import com.culpen.browser.engine.Html;
 import com.culpen.browser.engine.NavigationHistory;
 import com.culpen.browser.engine.PageLoader;
+import com.culpen.browser.engine.SearchPage;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -82,6 +84,7 @@ public final class MainActivity extends Activity {
     private String compatibilityError;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final NavigationHistory history = new NavigationHistory();
+    private final LruCache<URI, PageLoader.LoadedPage> searches = new LruCache<>(12);
     private PageLoader loader;
     private PageLoader.Cancellation cancellation;
     private Future<?> task;
@@ -131,7 +134,7 @@ public final class MainActivity extends Activity {
             Bundle webState = state.getBundle("webHistory");
             if (webState != null && WebView.getCurrentWebViewPackage() != null) restoringWebState = ensureWebView().restoreState(webState) != null;
         }
-        navigate(initial == null ? HOME : initial, !restored);
+        navigateEntry(initial == null ? HOME : initial, !restored, false);
         restoringWebState = false;
         if (state == null) handlePairIntent(getIntent());
     }
@@ -163,13 +166,13 @@ public final class MainActivity extends Activity {
         }
         LinearLayout top = new LinearLayout(this); top.setGravity(Gravity.CENTER_VERTICAL); top.setPadding(dp(12), dp(8), dp(8), dp(8));
         address = new EditText(this); address.setId(View.generateViewId()); address.setSingleLine(true);
-        address.setTextSize(15); address.setTextColor(0xff26354a); address.setHint("Enter a web address");
-        address.setContentDescription("Address"); address.setSelectAllOnFocus(true);
+        address.setTextSize(15); address.setTextColor(0xff26354a); address.setHint("Search or enter an address");
+        address.setContentDescription("Search or address"); address.setSelectAllOnFocus(true);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.setImeOptions(EditorInfo.IME_ACTION_GO); address.setPadding(dp(14), 0, dp(14), 0);
         address.setBackground(background(Color.WHITE, 14));
         top.addView(address, new LinearLayout.LayoutParams(0, dp(48), 1));
-        Button go = control("→", "Go to address"); top.addView(go, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        Button go = control("→", "Go or search"); top.addView(go, new LinearLayout.LayoutParams(dp(48), dp(48)));
         go.setOnClickListener(v -> submitAddress());
         address.setOnEditorActionListener((v, action, event) -> {
             if (action == EditorInfo.IME_ACTION_GO || event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP) { submitAddress(); return true; }
@@ -180,6 +183,7 @@ public final class MainActivity extends Activity {
         root.addView(progress, new LinearLayout.LayoutParams(-1, dp(2)));
         scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setBackgroundColor(Color.WHITE);
         page = new PageView(this); page.setOnNavigateListener(uri -> {
+            if (SearchPage.query(uri) != null) return;
             if ("content".equalsIgnoreCase(uri.getScheme())) { status.setText("Open local documents using the menu"); return; }
             if ("asset".equalsIgnoreCase(uri.getScheme()) && (displayed == null || !("asset".equals(displayed.getScheme()) || "browser:demo".equals(withoutFragment(displayed))))) {
                 status.setText("Remote pages cannot open local resources"); return;
@@ -205,7 +209,10 @@ public final class MainActivity extends Activity {
         reload.setOnClickListener(v -> {
             if (loading) stop();
             else if (compatibilityVisible && web != null) web.reload();
-            else navigate(current, false);
+            else {
+                searches.remove(current);
+                navigateEntry(current, false, true);
+            }
         });
         menu.setOnClickListener(this::showMenu); root.addView(controls);
         agentPanel = new BrowserAgentPanel(this, new MobileBrowserAgent.Host() {
@@ -224,8 +231,8 @@ public final class MainActivity extends Activity {
     }
 
     private void submitAddress() {
-        URI uri = Address.resolve(address.getText().toString());
-        if (uri == null) { address.setError("Enter an HTTP or HTTPS address"); return; }
+        URI uri = Address.resolveOmnibox(address.getText().toString());
+        if (uri == null) { address.setError("Enter a search or a valid web address"); return; }
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(address.getWindowToken(), 0);
         address.clearFocus(); navigate(uri);
         if (compatibilityVisible && web != null) web.requestFocus(); else page.requestFocus();
@@ -295,15 +302,18 @@ public final class MainActivity extends Activity {
 
     public void navigate(URI uri) { navigate(uri, true); }
     private void navigate(URI uri, boolean record) {
+        navigateEntry(uri, record, record);
+    }
+    private void navigateEntry(URI uri, boolean record, boolean runSearch) {
         boolean mode = record ? CompatibilityPolicy.usesCompatibility(uri)
                 : history.index() >= 0 && history.index() < compatibilityEntries.size() && compatibilityEntries.get(history.index());
-        navigate(uri, record, mode, true);
+        navigate(uri, record, mode, true, runSearch);
     }
     public void navigateCompatibility(URI uri) { navigate(uri, true, true); }
     private void navigate(URI uri, boolean record, boolean fullSite) {
-        navigate(uri, record, fullSite, false);
+        navigate(uri, record, fullSite, false, false);
     }
-    private void navigate(URI uri, boolean record, boolean fullSite, boolean allowRedirectCompatibility) {
+    private void navigate(URI uri, boolean record, boolean fullSite, boolean allowRedirectCompatibility, boolean runSearch) {
         if (!canNavigate(uri)) { status.setText("This address type is not supported"); return; }
         stopWork();
         int request = ++generation;
@@ -344,12 +354,27 @@ public final class MainActivity extends Activity {
             return;
         }
         if (web != null) { web.setVisibility(View.GONE); web.stopLoading(); web.onPause(); }
-        address.setText(uri.toString()); updateButtons();
+        String query = SearchPage.query(uri);
+        displayAddress(uri, query); updateButtons();
         pendingWebNavigation = false;
+        if (query != null) {
+            PageLoader.LoadedPage cached = searches.get(uri);
+            if (cached != null) {
+                showLoadedPage(cached, Collections.emptyMap(), query);
+                return;
+            }
+            // History and activity recreation are local, even when a search needs refreshing.
+            showSearchStatus(uri, runSearch ? SearchPage.State.SEARCHING : SearchPage.State.HISTORY);
+            if (!runSearch) {
+                status.setText("Browser Search");
+                setLoading(false);
+                return;
+            }
+        }
         if (displayed != null && withoutFragment(displayed).equals(withoutFragment(uri)) && !displayed.equals(uri)) {
             displayed = uri; setLoading(false); page.scrollToAnchor(uri.getRawFragment()); status.setText("Ready"); return;
         }
-        setLoading(true); status.setText("Loading…");
+        setLoading(true); status.setText(query == null ? "Loading…" : "Searching…");
         PageLoader.Cancellation token = new PageLoader.Cancellation(); cancellation = token;
         task = worker.submit(() -> {
             try {
@@ -364,18 +389,18 @@ public final class MainActivity extends Activity {
                 token.check();
                 runOnUiThread(() -> {
                     if (generation != request || isFinishing() || isDestroyed()) return;
-                    current = loaded.url; displayed = loaded.url; history.replaceCurrent(current);
-                    address.setText(current.toString());
-                    page.setPage(loaded.document, loaded.css, loaded.baseUri, images);
-                    page.scrollToAnchor(current.getRawFragment());
-                    setTitle(loaded.document.title().isEmpty() ? "Browser" : loaded.document.title());
-                    status.setText(loaded.statusCode != null && loaded.statusCode >= 400 ? "HTTP " + loaded.statusCode : "Ready");
-                    setLoading(false);
+                    if (query != null && Integer.valueOf(200).equals(loaded.statusCode)) searches.put(uri, loaded);
+                    showLoadedPage(loaded, images, query);
                 });
             } catch (Exception e) {
                 if (token.isCancelled()) return;
                 runOnUiThread(() -> {
                     if (generation != request || isFinishing() || isDestroyed()) return;
+                    if (query != null) {
+                        showSearchStatus(uri, SearchPage.State.UNAVAILABLE);
+                        status.setText("Browser Search"); setLoading(false);
+                        return;
+                    }
                     String message = e.getMessage() == null ? "Check your connection and try again." : e.getMessage();
                     Html.Document error = Html.parse("<html><head><title>Page unavailable</title><style>body{padding:20px;color:#26354a}h1{font-size:30px;margin-top:36px}</style></head><body><h1>This page couldn’t be loaded.</h1><p>" + escape(message) + "</p><p>" + escape(uri.toString()) + "</p><p>Check the address or your connection, then tap Reload.</p></body></html>");
                     displayed = null; page.setPage(error, error.embeddedStyles(), uri, Collections.emptyMap());
@@ -383,6 +408,27 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+    private void showLoadedPage(PageLoader.LoadedPage loaded, Map<String, Bitmap> images, String query) {
+        current = loaded.url; displayed = loaded.url; history.replaceCurrent(current);
+        displayAddress(current, query);
+        page.setPage(loaded.document, loaded.css, loaded.baseUri, images);
+        page.scrollToAnchor(current.getRawFragment());
+        setTitle(loaded.document.title().isEmpty() ? "Browser" : loaded.document.title());
+        if (query != null) status.setText("Browser Search");
+        else status.setText(loaded.statusCode != null && loaded.statusCode >= 400 ? "HTTP " + loaded.statusCode : "Ready");
+        setLoading(false);
+    }
+    private void displayAddress(URI uri, String query) {
+        if (query != null) address.setText(query);
+        else address.setText(HOME.equals(uri) ? "" : uri.toString());
+    }
+    private void showSearchStatus(URI uri, SearchPage.State state) {
+        Html.Document document = SearchPage.statusPage(uri, state);
+        displayed = uri;
+        page.setPage(document, document.embeddedStyles(), uri, Collections.emptyMap());
+        page.scrollToAnchor(null);
+        setTitle(document.title());
     }
     private void recordHistory(URI uri, boolean compatibility, int nativeIndex) {
         int previous = history.index();
@@ -587,7 +633,8 @@ public final class MainActivity extends Activity {
         if (uri == null) return false;
         String scheme = uri.getScheme();
         if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) return Address.resolve(uri.toString()) != null;
-        if ("browser:home".equals(withoutFragment(uri)) || "browser:demo".equals(withoutFragment(uri))) return true;
+        if ("browser:home".equals(withoutFragment(uri)) || "browser:demo".equals(withoutFragment(uri))
+                || SearchPage.query(uri) != null) return true;
         // History/recreation may restore bundled demo pages; the page callback separately checks its origin.
         if ("asset".equals(scheme)) return uri.getPath() != null && uri.normalize().getPath().startsWith("/demo/")
                 && PageLoader.resourceAllowed(uri, URI.create("asset:/demo/index.html"));
@@ -630,6 +677,7 @@ public final class MainActivity extends Activity {
     private void stopWork() { if (cancellation != null) cancellation.cancel(); if (task != null) task.cancel(true); }
     public void stop() {
         ++generation; stopWork(); if (web != null) web.stopLoading(); pendingWebNavigation = false;
+        if (loading && SearchPage.query(current) != null) showSearchStatus(current, SearchPage.State.STOPPED);
         setLoading(false); status.setText(compatibilityVisible ? "Full website · Stopped" : "Stopped");
     }
     public void goBack() { URI uri = history.back(); if (uri != null) navigate(uri, false); }
@@ -744,7 +792,8 @@ public final class MainActivity extends Activity {
     private boolean agentCanGoBack() {
         if (!history.canGoBack()) return false;
         URI previous = history.entries().get(history.index() - 1);
-        return CompatibilityPolicy.canLoad(previous) || HOME.equals(previous) || PageView.agentLinkAllowed(previous);
+        return CompatibilityPolicy.canLoad(previous) || HOME.equals(previous) || SearchPage.query(previous) != null
+                || PageView.agentLinkAllowed(previous);
     }
     CompletableFuture<Void> performAgentAction(MobileBrowserAgent.Command command, MobileBrowserAgent.Snapshot snapshot, boolean approved) {
         CompletableFuture<Void> result = new CompletableFuture<>();
@@ -754,17 +803,22 @@ public final class MainActivity extends Activity {
             return result;
         }
         MobileBrowserAgent.Element element = snapshot.element(command.id);
-        if (!approved && (command.verb.equals("TYPE") || command.verb.equals("CLICK") && element != null && element.kind.equals("button"))) {
+        if (!approved && (command.verb.equals("TYPE") || command.verb.equals("SEARCH")
+                || command.verb.equals("CLICK") && element != null && element.kind.equals("button"))) {
             result.completeExceptionally(new java.io.IOException("Approve this website action first."));
             return result;
         }
         agentObservation = null;
         try {
             switch (command.verb) {
-                case "OPEN": case "SEARCH":
-                    URI target = command.navigation();
+                case "OPEN":
+                    URI target = URI.create(command.text);
                     if (!CompatibilityPolicy.canLoad(target)) throw new IllegalArgumentException();
                     navigate(target); break;
+                case "SEARCH":
+                    URI search = SearchPage.address(command.text);
+                    if (search == null) throw new IllegalArgumentException();
+                    navigate(search); break;
                 case "BACK":
                     if (!agentCanGoBack()) throw new IllegalArgumentException();
                     goBack(); break;
