@@ -12,12 +12,33 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         let argumentURL = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("-") }).flatMap { value in
             value.contains("://") || value == "browser:home" ? URL(string: value) : URL(fileURLWithPath: value)
         }
-        controller.start(at: pendingURL ?? argumentURL)
+        let initialURL = pendingURL ?? argumentURL
+        controller.start(at: initialURL?.scheme?.lowercased() == "browseragent" ? nil : initialURL)
+        if let initialURL, initialURL.scheme?.lowercased() == "browseragent", let window = controller.window {
+            if initialURL.host?.lowercased() == "phone" {
+                BrowserAgentPhonesController.shared.receivePhoneURL(initialURL, from: window)
+            } else { BrowserAgentDevicesController.shared.receivePairingURL(initialURL, from: window) }
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard BrowserAgentServer.shared.isRunning else { return .terminateNow }
+        Task { @MainActor in
+            await BrowserAgentSharingController.shared.stopSharing()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first { if let browser { browser.navigate(url) } else { pendingURL = url } }
+        guard let url = urls.first else { return }
+        if let browser {
+            if url.scheme?.lowercased() == "browseragent", let window = browser.window {
+                if url.host?.lowercased() == "phone" {
+                    BrowserAgentPhonesController.shared.receivePhoneURL(url, from: window)
+                } else { BrowserAgentDevicesController.shared.receivePairingURL(url, from: window) }
+            } else { browser.navigate(url) }
+        } else { pendingURL = url }
     }
     private func makeMenu() {
         let main = NSMenu()

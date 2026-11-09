@@ -7,6 +7,94 @@ import XCTest
 
 final class BrowserAgentServerTests: XCTestCase {
     @MainActor
+    func testSelectingAuthenticatedPhoneSendsAttachTokenWithoutRunningModel() async throws {
+        var saved: Data?
+        var saves = 0
+        let store = BrowserAgentServer.IdentityStore(load: { saved }, save: { saved = $0; saves += 1 }, remove: { saved = nil })
+        let presence = BrowserAgentPhonePresence()
+        let server = BrowserAgentServer(persistentIdentity: true, identityStore: store, phonePresence: presence,
+                                        discoverAddresses: { ["127.0.0.1"] }) { _, _, _, _, _ in
+            XCTFail("A phone heartbeat must not run inference.")
+            return ""
+        }
+        defer { server.stop() }
+        try server.start(modelURL: URL(fileURLWithPath: #filePath))
+        try await waitUntilReady(server)
+        let (modelURL, key) = try pairing(server)
+        let phoneURL = modelURL.deletingLastPathComponent().appendingPathComponent("phone")
+        let id = UUID().uuidString
+        func heartbeat(at timestamp: Double = Date().timeIntervalSince1970) throws -> Data {
+            let plain = try JSONSerialization.data(withJSONObject: ["id": id, "name": "My Phone", "createdAt": timestamp])
+            return try XCTUnwrap(AES.GCM.seal(plain, using: key, authenticating: BrowserAgentServer.requestAAD).combined)
+        }
+        let first = try heartbeat()
+        let (_, alteredRouteStatus) = try await post(first, to: modelURL)
+        XCTAssertEqual(alteredRouteStatus.statusCode, 400)
+        XCTAssertEqual(saves, 1, "A heartbeat sent to the wrong route must not consume persistent inference nonces.")
+        let (initialResponse, initialStatus) = try await post(first, to: phoneURL)
+        XCTAssertEqual(initialStatus.statusCode, 200)
+        XCTAssertNil(try decrypt(initialResponse, using: key, request: first)["attach"])
+        XCTAssertEqual(presence.phones.first?.name, "My Phone")
+        try presence.attach(id)
+        let next = try heartbeat()
+        let (attachedResponse, attachedStatus) = try await post(next, to: phoneURL)
+        XCTAssertEqual(attachedStatus.statusCode, 200)
+        XCTAssertNotNil(try decrypt(attachedResponse, using: key, request: next)["attach"].flatMap(UUID.init(uuidString:)))
+        let (_, replayStatus) = try await post(next, to: phoneURL)
+        XCTAssertEqual(replayStatus.statusCode, 401)
+        let (_, staleStatus) = try await post(heartbeat(at: Date().timeIntervalSince1970 - 120), to: phoneURL)
+        XCTAssertEqual(staleStatus.statusCode, 401)
+        XCTAssertEqual(saves, 1, "Presence must not write replay state to Keychain for every heartbeat.")
+    }
+
+    @MainActor
+    func testRememberedPairingRejectsReplayAcrossServerRestartsAndCanBeRevoked() async throws {
+        var saved: Data?
+        let store = BrowserAgentServer.IdentityStore(load: { saved }, save: { saved = $0 }, remove: { saved = nil })
+        var calls = 0
+        let server = BrowserAgentServer(persistentIdentity: true, identityStore: store,
+                                        discoverAddresses: { ["127.0.0.1"] }) { _, _, _, _, _ in
+            calls += 1
+            return "10 AM"
+        }
+        defer { server.stop() }
+        try server.start(modelURL: URL(fileURLWithPath: #filePath))
+        try await waitUntilReady(server)
+        let originalID = server.deviceID
+        let (url, key) = try pairing(server)
+        let oldRequest = try request(using: key)
+        let (_, first) = try await post(oldRequest, to: url)
+        XCTAssertEqual(first.statusCode, 200)
+        server.stop()
+
+        let restarted = BrowserAgentServer(persistentIdentity: true, identityStore: store,
+                                           discoverAddresses: { ["127.0.0.1"] }) { _, _, _, _, _ in
+            calls += 1
+            return "10 AM"
+        }
+        defer { restarted.stop() }
+        try restarted.start(modelURL: URL(fileURLWithPath: #filePath))
+        try await waitUntilReady(restarted)
+        let (newURL, rememberedKey) = try pairing(restarted)
+        XCTAssertEqual(restarted.deviceID, originalID)
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, rememberedKey.withUnsafeBytes { Data($0) })
+        let (_, replay) = try await post(oldRequest, to: newURL)
+        XCTAssertEqual(replay.statusCode, 401)
+        let (_, fresh) = try await post(request(using: key), to: newURL)
+        XCTAssertEqual(fresh.statusCode, 200)
+        XCTAssertEqual(calls, 2)
+
+        try restarted.resetPairing()
+        try restarted.start(modelURL: URL(fileURLWithPath: #filePath))
+        try await waitUntilReady(restarted)
+        XCTAssertNotEqual(restarted.deviceID, originalID)
+        let (revokedURL, _) = try pairing(restarted)
+        let (_, revoked) = try await post(request(using: key), to: revokedURL)
+        XCTAssertEqual(revoked.statusCode, 401)
+        XCTAssertEqual(calls, 2)
+    }
+
+    @MainActor
     func testEncryptedRequestRejectsWrongKeyAndReplay() async throws {
         var calls = 0
         let server = BrowserAgentServer(discoverAddresses: { ["127.0.0.1"] }) { _, system, user, tokens, format in

@@ -652,6 +652,7 @@ public final class MainActivity extends Activity {
         if (web != null) { Bundle webState = new Bundle(); web.saveState(webState); state.putBundle("webHistory", webState); }
     }
     @Override protected void onPause() {
+        if (agentPanel != null) agentPanel.pausePhoneConnection();
         if (agentPanel != null) agentPanel.stop();
         // A login may set cookies through fetch without finishing a new page load.
         if (web != null || !popupViews.isEmpty()) CookieManager.getInstance().flush();
@@ -661,6 +662,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        if (agentPanel != null) agentPanel.resumePhoneConnection();
         if (web != null && compatibilityVisible) web.onResume();
         for (WebView popup : popupViews) popup.onResume();
     }

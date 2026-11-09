@@ -23,6 +23,7 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
     private let downloadRow = NSStackView()
     private let runButton = NSButton(title: "Run", target: nil, action: nil)
     private let stopButton = NSButton(title: "Stop", target: nil, action: nil)
+    private let devicesButton = NSButton(title: "Devices…", target: nil, action: nil)
     private let activity = NSStackView()
     private let review = NSStackView()
     private let allowButton = NSButton(title: "Allow", target: nil, action: nil)
@@ -37,6 +38,8 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
     init() {
         super.init(frame: .zero)
         buildInterface()
+        NotificationCenter.default.addObserver(self, selector: #selector(devicesChanged(_:)),
+                                               name: .browserAgentDevicesDidChange, object: nil)
         updateModel()
         updateControls()
     }
@@ -135,10 +138,11 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
         stopButton.action = #selector(stopTask(_:))
         runButton.toolTip = "Start the browser task"
         stopButton.toolTip = "Stop the agent"
-        let connectPhoneButton = NSButton(title: "Connect Phone…", target: self, action: #selector(connectPhone(_:)))
-        connectPhoneButton.toolTip = "Use this Mac’s model in Browser on your phone"
-        connectPhoneButton.setAccessibilityLabel("Connect Phone")
-        let actions = NSStackView(views: [runButton, stopButton, NSView(), connectPhoneButton])
+        devicesButton.target = self
+        devicesButton.action = #selector(chooseDevice(_:))
+        devicesButton.toolTip = "Choose a paired device’s model or share this Mac’s model"
+        devicesButton.setAccessibilityLabel("Model Devices")
+        let actions = NSStackView(views: [runButton, stopButton, NSView(), devicesButton])
         actions.spacing = 7
 
         modelLabel.font = .systemFont(ofSize: 11)
@@ -156,9 +160,12 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
         modelMenu.item(at: 2)?.target = self
         modelMenu.item(at: 2)?.action = #selector(useDefaultModel(_:))
         modelMenu.menu?.addItem(.separator())
-        modelMenu.addItem(withTitle: "Connect Phone…")
+        modelMenu.addItem(withTitle: "Share Model…")
         modelMenu.lastItem?.target = self
         modelMenu.lastItem?.action = #selector(connectPhone(_:))
+        modelMenu.addItem(withTitle: "Model Devices…")
+        modelMenu.lastItem?.target = self
+        modelMenu.lastItem?.action = #selector(chooseDevice(_:))
         let modelRow = NSStackView(views: [modelLabel, modelMenu])
         modelRow.alignment = .centerY
         modelRow.distribution = .fill
@@ -246,9 +253,10 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
     }
 
     private func updateModel() {
-        modelLabel.stringValue = modelURL?.lastPathComponent ?? "Qwen2.5 0.5B · On device"
+        modelLabel.stringValue = BrowserAgentDevices.shared.selected.map { "\($0.name) · Remote model" }
+            ?? modelURL?.lastPathComponent ?? "Qwen2.5 0.5B · On device"
         modelLabel.toolTip = modelLabel.stringValue
-        let showDownload = !modelIsAvailable || downloadTask != nil
+        let showDownload = BrowserAgentDevices.shared.selected == nil && (!modelIsAvailable || downloadTask != nil)
         if showDownload, downloadRow.superview == nil {
             layout.insertArrangedSubview(downloadRow, at: layout.arrangedSubviews.count - 1)
             downloadRow.widthAnchor.constraint(equalTo: layout.widthAnchor).isActive = true
@@ -267,7 +275,8 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
     }
 
     private var modelIsAvailable: Bool {
-        FileManager.default.isReadableFile(atPath: (modelURL ?? BrowserAgentModel.defaultURL).path)
+        BrowserAgentDevices.shared.selected != nil ||
+            FileManager.default.isReadableFile(atPath: (modelURL ?? BrowserAgentModel.defaultURL).path)
     }
 
     private func updateControls() {
@@ -279,6 +288,9 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
         let canChooseModel = !running && downloadTask == nil
         modelMenu.item(at: 1)?.isEnabled = canChooseModel
         modelMenu.item(at: 2)?.isEnabled = canChooseModel
+        modelMenu.item(at: 4)?.isEnabled = canChooseModel
+        modelMenu.item(at: 5)?.isEnabled = canChooseModel
+        devicesButton.isEnabled = canChooseModel
         downloadButton.isEnabled = !running
     }
 
@@ -291,6 +303,8 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
         if let type = UTType(filenameExtension: "gguf") { panel.allowedContentTypes = [type] }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self, let url = panel.url else { return }
+            do { try BrowserAgentDevices.shared.select(nil) }
+            catch { self.appendLog(error.localizedDescription, heading: "Model device"); return }
             self.modelURL = url
             UserDefaults.standard.set(url.path, forKey: Self.modelPreference)
             self.updateModel()
@@ -299,12 +313,24 @@ final class BrowserAgentSidebar: NSView, NSTextViewDelegate {
     }
 
     @objc private func connectPhone(_ sender: Any?) {
-        guard let window else { return }
+        guard !running, downloadTask == nil, let window else { return }
         BrowserAgentSharingController.shared.present(from: window, modelURL: modelURL ?? BrowserAgentModel.defaultURL)
+    }
+
+    @objc private func chooseDevice(_ sender: Any?) {
+        guard !running, downloadTask == nil, let window else { return }
+        BrowserAgentDevicesController.shared.present(from: window, modelURL: modelURL ?? BrowserAgentModel.defaultURL)
+    }
+
+    @objc private func devicesChanged(_ notification: Notification) {
+        updateModel()
+        updateControls()
     }
 
     @objc private func useDefaultModel(_ sender: Any?) {
         guard !running else { return }
+        do { try BrowserAgentDevices.shared.select(nil) }
+        catch { appendLog(error.localizedDescription, heading: "Model device"); return }
         modelURL = nil
         UserDefaults.standard.removeObject(forKey: Self.modelPreference)
         updateModel()
