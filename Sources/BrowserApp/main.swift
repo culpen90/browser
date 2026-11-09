@@ -7,6 +7,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         makeMenu()
+        LocalSearchService.shared.start()
         let controller = BrowserWindowController()
         browser = controller
         let argumentURL = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("-") }).flatMap { value in
@@ -22,6 +23,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationWillTerminate(_ notification: Notification) { LocalSearchService.shared.stop() }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard BrowserAgentServer.shared.isRunning else { return .terminateNow }
         Task { @MainActor in
@@ -44,6 +46,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         let main = NSMenu()
         let app = NSMenu(title: "Browser")
         app.addItem(withTitle: "About Browser", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "Search Settings…", action: #selector(BrowserWindowController.openSearchSettings(_:)), keyEquivalent: ",")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide Browser", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]

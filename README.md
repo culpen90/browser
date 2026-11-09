@@ -10,6 +10,16 @@ Compatibility sessions keep website cookies and storage on this device between l
 
 The macOS implementation remains in `Sources` and uses Swift/AppKit. The Android port lives in `android` and uses Java, native Android controls, Canvas drawing, and platform HTTP/TLS and image APIs. Both versions share the same early engine scope. The Mac build and its release remain available independently.
 
+## Browser Search
+
+Type a search in the address bar and press Return to open Browser's built-in results page. The address bar shows your query while you browse results. Open a result to see its website address, and use Back to return to the results. Typing a website address opens that site directly.
+
+On macOS, the packaged app includes [SearXNG](https://docs.searxng.org/) and a self-contained Python runtime. Open Browser to start local search automatically. The service listens only on this Mac and shuts down when Browser quits. Browser sends submitted queries to that instance, which asks the enabled search providers over the internet. Those providers receive your query from your connection.
+
+Open **Search Settings** with the toolbar gear or **⌘,**. Brave Search and DuckDuckGo are on by default, and Bing is available as another source. Choose sources, adjust SafeSearch, or start, stop, and restart local search from the page. The source and SafeSearch choices persist. SafeSearch depends on each provider’s support, and providers can occasionally rate-limit or block requests.
+
+On Android, Browser uses the anonymous [Mwmbl web search API](https://developer.mwmbl.org/). Mwmbl lists a limit of 1,000 searches per IP per month and one request per second. Results are credited on the page under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). [API terms](https://developer.mwmbl.org/terms/) · [API privacy policy](https://developer.mwmbl.org/privacy/)
+
 ## AI Agent on macOS
 
 Click **AI Agent** in Browser's toolbar to open its side panel. Close it with the panel's **×** button, click **AI Agent** again, or use **View → AI Agent** (⇧⌘A). Your task and results stay in the panel when you reopen it.
@@ -136,7 +146,11 @@ swift test
 ./scripts/install-app.sh
 ```
 
-Open `Package.swift` in Xcode to work on the project. `scripts/build-app.sh` creates the release app and ZIP in `dist`; `scripts/install-app.sh` also installs it in your user Applications folder. Quit Browser before reinstalling. No package downloads are required. To launch with a document:
+Open `Package.swift` in Xcode to work on the project. `scripts/build-app.sh` creates the release app and ZIP in `dist`. `scripts/install-app.sh` also installs it in your user Applications folder. Quit Browser before reinstalling.
+
+Packaging downloads and verifies the pinned SearXNG source and Python distributions and caches them under `.build/local-search-artifacts`. Use the packaged app to try local search. `swift run` launches the Swift executable by itself. SearXNG source and third-party notices ship in the app’s `Contents/Resources/LocalSearch` directory.
+
+To launch with a document:
 
 ```sh
 swift run Browser Fixtures/index.html
@@ -147,6 +161,13 @@ To build the app for both Apple silicon and Intel, use `./scripts/build-app.sh -
 
 ```sh
 ./scripts/package-release.sh
+```
+
+After packaging, run the opt-in live search test with the bundled runtime:
+
+```sh
+BROWSER_TEST_LIVE_SEARCH=1 BROWSER_TEST_SEARCH_RESOURCES="$PWD/dist/Browser.app/Contents/Resources" \
+  swift test --filter SearchTests
 ```
 
 Releases are published manually. GitHub Actions runs tests on Apple silicon and Intel and checks universal packaging; it does not create tags or publish releases.

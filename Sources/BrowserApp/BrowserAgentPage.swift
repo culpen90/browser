@@ -18,6 +18,8 @@ struct BrowserAgentPage {
     func approvalDescription(for action: BrowserAgentPageAction) -> String? {
         let site = URL(string: url)?.host ?? "this page"
         switch action {
+        case .search(let query):
+            return "Send this query through SearXNG to your enabled search sources?\n\n\(query)"
         case .click(let id):
             guard let element = elements.first(where: { $0.id == id }), element.kind == .button else { return nil }
             return "Click “\(element.label)” on \(site)?"
@@ -43,6 +45,7 @@ struct BrowserAgentElement: Decodable {
 
 enum BrowserAgentPageAction {
     case navigate(URL)
+    case search(String)
     case click(Int)
     case type(Int, String)
     case back

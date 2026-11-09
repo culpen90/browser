@@ -57,6 +57,15 @@ public final class PageLoader {
 
     public func resource(_ url: URL, maxBytes: Int = 8_000_000) async throws -> Data {
         let (data, response) = try await fetch(url, maxBytes: maxBytes)
+        return try Self.successfulResource(data, response: response)
+    }
+
+    func resource(_ request: URLRequest, maxBytes: Int) async throws -> Data {
+        let (data, response) = try await fetchHTTP(request, maxBytes: maxBytes)
+        return try Self.successfulResource(data, response: response)
+    }
+
+    private static func successfulResource(_ data: Data, response: URLResponse?) throws -> Data {
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw PageLoadError.resourceStatus(http.statusCode)
         }
@@ -88,11 +97,15 @@ public final class PageLoader {
             }
             return (data, nil)
         }
-        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+        return try await fetchHTTP(URLRequest(url: url, timeoutInterval: 25), maxBytes: maxBytes)
+    }
+
+    private func fetchHTTP(_ request: URLRequest, maxBytes: Int) async throws -> (Data, URLResponse) {
+        guard maxBytes > 0 else { throw PageLoadError.tooLarge(maxBytes) }
+        guard ["http", "https"].contains(request.url?.scheme?.lowercased() ?? "") else {
             throw PageLoadError.unsupportedScheme
         }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 25
+        try Task.checkCancellation()
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         if response.expectedContentLength > Int64(maxBytes) { throw PageLoadError.tooLarge(maxBytes) }

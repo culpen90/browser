@@ -1,6 +1,33 @@
 import Foundation
 
 public enum Address {
+    /// Classifies typed input. Programmatic navigation continues to use strict address resolution.
+    public static func resolveInput(_ input: String) -> URL? {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        let lower = value.lowercased()
+        if lower.hasPrefix("browser:search"), let location = URL(string: value),
+           let query = WebSearch.query(in: location) {
+            return WebSearch.location(for: query)
+        }
+        let explicit = value.hasPrefix("/") || value.hasPrefix("~/")
+            || lower.range(of: #"^[a-z][a-z0-9+.-]*://"#, options: .regularExpression) != nil
+            || ["http:", "https:", "file:", "browser:", "browseragent:", "javascript:", "data:",
+                "mailto:", "tel:", "ftp:", "about:"].contains(where: lower.hasPrefix)
+        let authority = value.prefix { !"/?#".contains($0) }
+        let suffix = value.dropFirst(authority.count)
+        let hasHostLabel = !authority.isEmpty && authority.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        let hasAddressSuffix = suffix.hasPrefix("/") || (suffix.hasPrefix("#") && suffix.count > 1)
+            || (suffix.hasPrefix("?") && suffix.contains("="))
+        if explicit || (!authority.contains(where: \.isWhitespace)
+                        && (authority.lowercased() == "localhost" || authority.contains(".")
+                            || authority.contains(":") || authority.hasPrefix("[") || authority.contains("@")
+                            || (hasHostLabel && hasAddressSuffix))) {
+            return resolve(value)
+        }
+        return WebSearch.location(for: value)
+    }
+
     /// Resolves address-bar input without sending it to a search provider.
     public static func resolve(_ input: String) -> URL? {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)

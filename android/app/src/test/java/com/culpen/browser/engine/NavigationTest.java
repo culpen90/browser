@@ -15,11 +15,28 @@ public class NavigationTest {
         assertEquals(URI.create("browser:demo"), Address.resolve("browser:demo"));
     }
     @Test public void rejectsUnsupportedAmbiguousOrCredentialAddresses() {
-        for (String value : new String[]{"", "word search", "javascript:alert(1)", "data:text/html,hello",
+        for (String value : new String[]{"", "word search", "javascript:alert(1)", "javascript:1234", "data:text/html,hello",
                 "content://provider/document/1", "file:///sdcard/file.html", "ftp://example.com", "browser:other",
                 "https://user:password@example.com", "example.com:0", "example.com:65536", "https://", "/sdcard/page.html"}) {
             assertNull(value, Address.resolve(value));
         }
+    }
+    @Test public void omniboxSearchesWordsAndPhrasesWhilePreservingAddresses() {
+        for (String query : new String[]{"garden", "pizza?", "C#", "C++ & café #1", "python.org documentation", "weather: tomorrow"}) {
+            URI target = Address.resolveOmnibox("  " + query + "  ");
+            assertEquals(query, SearchPage.query(target));
+            assertEquals(target, Address.resolveOmnibox(target.toString()));
+        }
+        for (String address : new String[]{"example.com", "https://example", "localhost:8080", "[::1]",
+                "intranet/reports?token=abc", "browser:home"}) {
+            assertEquals(address, Address.resolve(address), Address.resolveOmnibox(address));
+        }
+        for (String input : new String[]{"", "https://", "http://user:password@example.com", "javascript:alert(1)", "javascript:1234",
+                "data:text/plain,secrets", "file:///sdcard/notes", "/local/notes", "example.com:65536", "intranet/reports?token=abc xyz",
+                "browser:search?q=one&extra=two", "x".repeat(401)}) {
+            assertNull(input, Address.resolveOmnibox(input));
+        }
+        assertNull(Address.resolve("browser:search?q=private%20query"));
     }
     @Test public void historyBranchesAndPreservesRedirectReplacement() {
         NavigationHistory history = new NavigationHistory();

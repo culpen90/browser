@@ -1,9 +1,15 @@
 import AppKit
 import BrowserCore
+import Combine
 import WebKit
 
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate, NSMenuItemValidation {
+    enum SearchNavigation {
+        case submit, restore
+    }
+    private static let searchSettingsURL = URL(string: "browser:search-settings")!
+
     let addressField = NSTextField()
     let canvas = PageCanvas(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
     private let scrollView = NSScrollView()
@@ -17,6 +23,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var pageTrailingAtWindow: NSLayoutConstraint?
     private var pageTrailingAtSidebar: NSLayoutConstraint?
     private let loader = PageLoader()
+    private let searchService: LocalSearchService
+    private let fetchSearch: (String) async throws -> [WebSearch.Result]
+    private var searchSettingsView: SearchSettingsView?
+    private var searchSettingsObservation: AnyCancellable?
+    private let searchPages: NSCache<NSURL, NSString> = {
+        let cache = NSCache<NSURL, NSString>()
+        cache.countLimit = 12
+        return cache
+    }()
     private var history = NavigationHistory()
     private var navigationTask: Task<Void, Never>?
     private var generation = 0
@@ -34,7 +49,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var popupControllers: [UUID: BrowserWindowController] = [:]
     private var onClose: (() -> Void)?
 
-    init() {
+    init(searchService: LocalSearchService? = nil,
+         fetchSearch: ((String) async throws -> [WebSearch.Result])? = nil) {
+        let searchService = searchService ?? .shared
+        self.searchService = searchService
+        self.fetchSearch = fetchSearch ?? searchService.search
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Browser"
@@ -74,19 +93,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             button(symbol: "house", label: "Home (⇧⌘H)", action: #selector(goHome(_:)))
         ])
         controls.spacing = 5
-        addressField.placeholderString = "Enter a web address"
+        addressField.placeholderString = "Search the web or enter an address"
         addressField.font = .systemFont(ofSize: 14)
         addressField.bezelStyle = .roundedBezel
         addressField.focusRingType = .exterior
         addressField.target = self; addressField.action = #selector(submitAddress(_:))
         addressField.delegate = self
-        addressField.setAccessibilityLabel("Address")
+        addressField.setAccessibilityLabel("Search or address")
         progress.style = .spinning; progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
         let assistant = button(agentButton, symbol: "sidebar.right", label: "Open AI Agent (⇧⌘A)",
                                action: #selector(toggleAgentSidebar(_:)), title: "AI Agent")
         assistant.setButtonType(.toggle)
-        let header = NSStackView(views: [controls, addressField, progress, assistant])
+        let searchSettings = button(symbol: "gearshape", label: "Search Settings (⌘,)", action: #selector(openSearchSettings(_:)))
+        let header = NSStackView(views: [controls, addressField, progress, searchSettings, assistant])
         header.spacing = 12; header.alignment = .centerY
         header.translatesAutoresizingMaskIntoConstraints = false
         toolbar.addSubview(header)
@@ -97,7 +117,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .white
         canvas.autoresizingMask = [.width]
-        canvas.onNavigate = { [weak self] url in self?.navigate(url) }
+        canvas.onNavigate = { [weak self] url in
+            guard let self else { return }
+            if url == Self.searchSettingsURL, displayedURL == currentURL,
+               currentURL.absoluteString == "browser:home" || WebSearch.query(in: currentURL) != nil {
+                openSearchSettings(nil)
+            } else {
+                navigate(url)
+            }
+        }
         canvas.onHover = { [weak self] url in
             guard let self else { return }
             self.statusLabel.stringValue = url ?? self.currentStatus
@@ -140,6 +168,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     func windowWillClose(_ notification: Notification) {
         agentSidebar.stop()
         navigationTask?.cancel()
+        searchSettingsObservation = nil
         compatibilitySession = nil
         for session in websiteSessions.values { session.stop() }
         for popup in Array(popupControllers.values) { popup.close() }
@@ -169,7 +198,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             pageTrailingAtWindow?.isActive = true
             agentSidebar.isHidden = true
             window?.minSize = NSSize(width: 520, height: 360)
-            window?.makeFirstResponder(compatibilitySession?.webView ?? canvas)
+            window?.makeFirstResponder(pageResponder)
         }
         window?.contentView?.layoutSubtreeIfNeeded()
         canvas.relayout()
@@ -179,34 +208,52 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         // the actual address when an edit is abandoned or focus moves into the page.
         Task { @MainActor [weak self] in
             guard let self, self.addressField.currentEditor() == nil else { return }
-            self.addressField.stringValue = self.currentURL.absoluteString
+            self.addressField.stringValue = WebSearch.query(in: self.currentURL) ?? self.currentURL.absoluteString
         }
     }
     @objc private func submitAddress(_ sender: Any?) {
-        guard let url = Address.resolve(addressField.stringValue) else {
-            setStatus("Enter an HTTP, HTTPS, or local file address.")
+        if addressField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == Self.searchSettingsURL.absoluteString {
+            openSearchSettings(sender)
+            window?.makeFirstResponder(pageResponder)
+            return
+        }
+        guard let url = Address.resolveInput(addressField.stringValue) else {
+            setStatus("Enter a shorter search or a valid web or file address.")
             NSSound.beep(); return
         }
-        navigate(url)
-        window?.makeFirstResponder(compatibilitySession?.webView ?? canvas)
+        navigate(url, searchNavigation: .submit)
+        window?.makeFirstResponder(pageResponder)
+    }
+    private var pageResponder: NSView {
+        if let searchSettingsView { return searchSettingsView }
+        return compatibilitySession?.webView ?? canvas
     }
     private var canGoBack: Bool { compatibilitySession?.webView.canGoBack == true || history.canGoBack }
     private var canGoForward: Bool { compatibilitySession?.webView.canGoForward == true || history.canGoForward }
     @objc func goBack(_ sender: Any?) {
         if let session = compatibilitySession, session.webView.canGoBack { session.webView.goBack() }
-        else if let url = history.back() { navigate(url, record: false) }
+        else if let url = history.back() { navigate(url, record: false, searchNavigation: .restore) }
     }
     @objc func goForward(_ sender: Any?) {
         if let session = compatibilitySession, session.webView.canGoForward { session.webView.goForward() }
-        else if let url = history.forward() { navigate(url, record: false) }
+        else if let url = history.forward() { navigate(url, record: false, searchNavigation: .restore) }
     }
     @objc func goHome(_ sender: Any?) { navigate(URL(string: "browser:home")!) }
+    @objc func openSearchSettings(_ sender: Any?) {
+        navigate(Self.searchSettingsURL, searchNavigation: .submit)
+    }
     @objc func reload(_ sender: Any?) {
         if isLoading { stopLoading(sender) }
         else if let session = compatibilitySession { session.reload() }
-        else { navigate(currentURL, record: false) }
+        else {
+            searchPages.removeObject(forKey: currentURL as NSURL)
+            navigate(currentURL, record: false, searchNavigation: .submit)
+        }
     }
     @objc func stopLoading(_ sender: Any?) {
+        if isLoading, let query = WebSearch.query(in: currentURL) {
+            displaySearch(SearchPage.html(query: query, message: "Search stopped. Reload to try again."))
+        }
         generation += 1; navigationTask?.cancel(); navigationTask = nil
         if compatibilitySession?.isLoading == true { compatibilitySession?.stop() }
         setLoading(false); setStatus("Stopped")
@@ -220,6 +267,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
     @objc func copyPageText(_ sender: Any?) {
+        guard searchSettingsView == nil else { return }
         guard let session = compatibilitySession else { canvas.copyPageText(sender); return }
         session.webView.evaluateJavaScript("document.body.innerText") { value, _ in
             guard let text = value as? String else { return }
@@ -233,23 +281,29 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         navigate(currentURL, record: false, compatibility: enable)
     }
 
-    func navigate(_ url: URL, record: Bool = true, compatibility: Bool? = nil) {
+    func navigate(_ url: URL, record: Bool = true, compatibility: Bool? = nil, searchNavigation: SearchNavigation? = nil) {
         if url.scheme?.lowercased() == "browseragent" {
             if let window {
                 if url.host?.lowercased() == "phone" {
                     BrowserAgentPhonesController.shared.receivePhoneURL(url, from: window)
                 } else { BrowserAgentDevicesController.shared.receivePairingURL(url, from: window) }
             }
-            addressField.stringValue = currentURL.absoluteString
+            addressField.stringValue = WebSearch.query(in: currentURL) ?? currentURL.absoluteString
             return
         }
         let restoringBlank = !record && url.absoluteString == "about:blank" && websiteSessions[history.index] != nil
-        guard let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) || url.absoluteString == "browser:home" || restoringBlank else {
+        let search = searchNavigation != nil ? WebSearch.query(in: url) : nil
+        let showSettings = searchNavigation != nil && url == Self.searchSettingsURL
+        guard let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme)
+                || url.absoluteString == "browser:home" || restoringBlank || search != nil || showSettings else {
             setStatus("This address type is not supported."); NSSound.beep(); return
         }
         generation += 1
         let requestID = generation
         navigationTask?.cancel()
+        searchSettingsView?.removeFromSuperview()
+        searchSettingsView = nil
+        searchSettingsObservation = nil
         // A Back/Forward action may already have moved the app history cursor.
         // Detach before stop(), whose synchronous callback still describes the old page.
         let previousSession = compatibilitySession
@@ -263,7 +317,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             history.push(url)
             if history.entries != oldEntries { websiteSessions = websiteSessions.filter { $0.key < history.index } }
         }
-        addressField.stringValue = url.absoluteString
+        addressField.stringValue = search ?? url.absoluteString
+        if showSettings {
+            displaySearchSettings()
+            return
+        }
         let useWebsite = compatibility ?? (websiteSessions[history.index] != nil || SiteSession.requiresCompatibility(url))
         if useWebsite, SiteSession.allowsNavigation(url) || restoringBlank {
             if let session = websiteSessions[history.index] {
@@ -285,6 +343,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             setLoading(false)
             display(HTMLParser().parse(Self.homeHTML), css: "", baseURL: url, images: [:])
             canvas.scrollToAnchor(nil); setStatus("Ready"); return
+        }
+        if let search {
+            loadSearch(search, at: url, requestID: requestID, restoring: searchNavigation == .restore)
+            return
         }
         if record, displayedURL?.withoutFragment == url.withoutFragment, displayedURL?.fragment != url.fragment, visibleDocument != nil {
             displayedURL = url
@@ -388,6 +450,76 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
 
+    private func loadSearch(_ query: String, at location: URL, requestID: Int, restoring: Bool) {
+        if restoring {
+            let html = searchPages.object(forKey: location as NSURL).map { $0 as String }
+                ?? SearchPage.html(query: query, message: "Reload to run this search again.")
+            displaySearch(html)
+            setStatus("Ready"); setLoading(false)
+            return
+        }
+        displaySearch(SearchPage.html(query: query, message: "Searching the web…"))
+        setStatus("Searching…"); setLoading(true)
+        navigationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let results = try await fetchSearch(query)
+                try Task.checkCancellation()
+                guard generation == requestID else { return }
+                let html = SearchPage.html(query: query, results: results)
+                searchPages.setObject(html as NSString, forKey: location as NSURL)
+                displaySearch(html)
+                setStatus("Ready"); setLoading(false)
+            } catch {
+                guard generation == requestID, !Task.isCancelled else { return }
+                let message: String
+                if let localError = error as? LocalSearchError {
+                    message = localError.localizedDescription
+                } else if case WebSearchError.sourcesUnavailable = error {
+                    message = "The selected sources didn’t return results. Try again or choose another source in Search Settings."
+                } else {
+                    message = "Search is temporarily unavailable. Check your connection or reload to try again."
+                }
+                displaySearch(SearchPage.html(query: query, message: message))
+                setStatus("Search unavailable"); setLoading(false)
+            }
+        }
+    }
+
+    private func displaySearch(_ html: String) {
+        display(HTMLParser().parse(html), css: "", baseURL: currentURL, images: [:], maximumLayoutWidth: 760)
+        canvas.scrollToAnchor(nil)
+    }
+
+    private func displaySearchSettings() {
+        guard let content = window?.contentView else { return }
+        let model = SearchSettingsView.Model(snapshot: searchService.snapshot)
+        model.onChange = { [weak self] in self?.searchService.update($0) }
+        model.onRestart = { [weak self] in self?.searchService.restart() }
+        model.onStop = { [weak self] in self?.searchService.stop() }
+        model.onBack = { [weak self] in
+            guard let self else { return }
+            if canGoBack { goBack(nil) } else { goHome(nil) }
+        }
+        searchSettingsObservation = searchService.$snapshot.sink { [weak model] in model?.snapshot = $0 }
+        let view = SearchSettingsView(model: model)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            view.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+        ])
+        searchSettingsView = view
+        scrollView.isHidden = true
+        visibleDocument = nil
+        displayedURL = nil
+        window?.title = "Search Settings — Browser"
+        setLoading(false)
+        setStatus("Search Settings")
+    }
+
     private func configure(_ session: SiteSession) {
         session.onChange = { [weak self] session in self?.websiteChanged(session) }
         session.onNewHistoryEntry = { [weak self, weak session] in
@@ -400,7 +532,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         session.createPopup = { [weak self] configuration, _ in
             guard let self else { return nil }
             let id = UUID()
-            let popup = BrowserWindowController()
+            let popup = BrowserWindowController(searchService: self.searchService)
             self.popupControllers[id] = popup
             popup.onClose = { [weak self] in self?.popupControllers.removeValue(forKey: id) }
             let child = SiteSession(configuration: configuration)
@@ -450,9 +582,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
         if ["http", "https"].contains(resource.scheme?.lowercased() ?? "") { return true }
         return page.isFileURL && resource.isFileURL
     }
-    private func display(_ document: HTMLDocument, css: String, baseURL: URL, images: [URL: NSImage]) {
+    private func display(_ document: HTMLDocument, css: String, baseURL: URL, images: [URL: NSImage],
+                         maximumLayoutWidth: CGFloat? = nil) {
         visibleDocument = document; displayedURL = currentURL
-        canvas.show(document: document, css: css.isEmpty ? document.embeddedStyles : css, baseURL: baseURL, images: images)
+        canvas.show(document: document, css: css.isEmpty ? document.embeddedStyles : css, baseURL: baseURL,
+                    images: images, maximumLayoutWidth: maximumLayoutWidth)
         window?.title = document.title.isEmpty ? "Browser" : "\(document.title) — Browser"
     }
     private func setStatus(_ value: String) { currentStatus = value; statusLabel.stringValue = value }
@@ -473,12 +607,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
             return SiteSession.allowsNavigation(currentURL)
         }
         if menuItem.action == #selector(stopLoading(_:)) { return isLoading }
+        if menuItem.action == #selector(copyPageText(_:)) { return searchSettingsView == nil }
         if menuItem.action == #selector(toggleAgentSidebar(_:)) {
             menuItem.state = agentSidebar.isHidden ? .off : .on
         }
         return true
     }
-    static func escape(_ text: String) -> String {
+    nonisolated static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
     static let homeHTML = """
@@ -491,14 +626,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
     li { margin-bottom: 18px; }
     </style></head><body>
     <h1>A place to begin.</h1>
-    <p>Enter an address above and explore the web.</p>
+    <p>Search the web or enter an address above.</p>
     <h2>EXPLORE</h2>
     <ul><li><a href="https://example.com">Example Domain</a></li>
     <li><a href="https://www.reddit.com/">Reddit</a></li>
     <li><a href="https://info.cern.ch/hypertext/WWW/TheProject.html">The World Wide Web project</a></li>
     <li><a href="https://www.rfc-editor.org/rfc/rfc9110.txt">Read an internet standard</a></li></ul>
     <h2>MAKE YOURSELF AT HOME</h2>
-    <p>⌘L to enter an address. ⌘O to open a local page.</p>
+    <p>⌘L to search or enter an address. ⌘O to open a local page.</p>
+    <p><a href="browser:search-settings">Search Settings</a></p>
     </body></html>
     """
     private static func errorHTML(url: URL, message: String) -> String {
@@ -512,7 +648,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSTex
 extension BrowserWindowController {
     func observeForAgent() async throws -> BrowserAgentPage {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(25))
+        let deadline = clock.now.advanced(by: .seconds(WebSearch.query(in: currentURL) == nil ? 25 : 45))
         while isLoading || compatibilitySession?.isLoading == true {
             guard clock.now < deadline else { throw BrowserAgentPageError.stillLoading }
             try await Task.sleep(for: .milliseconds(75))
@@ -570,6 +706,9 @@ extension BrowserWindowController {
         case .navigate(let url):
             guard SiteSession.allowsNavigation(url) else { throw BrowserAgentPageError.unsupportedAddress }
             navigate(url)
+        case .search(let query):
+            guard let location = WebSearch.location(for: query) else { throw BrowserAgentPageError.invalidAction }
+            navigate(location, searchNavigation: .submit)
         case .back:
             guard agentCanGoBack else { throw BrowserAgentPageError.invalidAction }
             let goesBackWithinWebsite = session?.webView.canGoBack == true
@@ -614,7 +753,7 @@ extension BrowserWindowController {
         }
         guard history.canGoBack else { return false }
         let url = history.entries[history.index - 1]
-        return url.absoluteString == "browser:home" || SiteSession.allowsNavigation(url)
+        return url.absoluteString == "browser:home" || WebSearch.query(in: url) != nil || SiteSession.allowsNavigation(url)
     }
 
     private func waitForWebsiteNavigation(from page: BrowserAgentPage, in session: SiteSession) async throws {

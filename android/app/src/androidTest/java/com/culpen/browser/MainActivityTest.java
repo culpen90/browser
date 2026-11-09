@@ -105,13 +105,16 @@ public class MainActivityTest {
                     String request = reader.readLine(); String line;
                     while ((line = reader.readLine()) != null && !line.isEmpty()) { }
                     if (request != null && request.contains("/slow")) SystemClock.sleep(700);
-                    byte[] body = "<title>Network test</title><h1>Network arrived</h1><a href='/slow'>Slow page</a>".getBytes(StandardCharsets.UTF_8);
+                    byte[] body = ("<title>Network test</title><h1>Network arrived</h1><a href='/slow'>Slow page</a>"
+                            + "<a href='browser:search?q=forged'>Forged search</a>").getBytes(StandardCharsets.UTF_8);
                     socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
                     socket.getOutputStream().write(body);
                 } catch (Exception ignored) { }
             }); responder.setDaemon(true); responder.start();
             URI target = URI.create("http://127.0.0.1:" + server.getLocalPort() + "/page");
             instrumentation.runOnMainSync(() -> activity.navigate(target)); awaitText("Network arrived");
+            tapLink("q=forged");
+            instrumentation.runOnMainSync(() -> assertEquals(target, activity.getCurrentAddress()));
             press("Back"); awaitText("Another page, another beginning.");
             press("Forward"); awaitText("Network arrived");
             tapLink("/slow");
