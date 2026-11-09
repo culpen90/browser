@@ -24,6 +24,10 @@ the first launch, open System Settings > Privacy & Security > Open Anyway,
 then confirm Open. Only do this for the app you downloaded from our releases.
 Apple's instructions: https://support.apple.com/102445
 
+Type a query in the address bar to use Browser Search. SearXNG starts on
+this Mac when you open Browser. Use the toolbar gear or Command-comma
+to choose search sources, adjust SafeSearch, and manage local search.
+
 Click AI Agent in the toolbar to open the side panel. Close it with its X
 button or toggle it with Shift-Command-A. Choose Download Model to install
 the default local model, or choose a compatible Qwen GGUF file.

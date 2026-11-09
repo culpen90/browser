@@ -1,21 +1,22 @@
-# Browser v0.2.2
+# Browser v0.4.0
 
-Adds a visible **Connect Phone…** button beside Run and Stop in the Mac's agent panel, so phone pairing is easy to find.
+Browser Search brings web search into the address bar on macOS and Android. Results open in a built-in page that shows the query in the address bar. Opening a result shows the destination website’s address.
 
-## Changes
+## macOS
 
-- Open **AI Agent** in the Mac browser's toolbar, click **Connect Phone…**, then choose **Start Sharing** to show the pairing QR code and link.
-- The button opens the existing encrypted pairing flow and remains available while using the agent. The Model menu shortcut remains available.
-- Updated the README and the Mac download's installation instructions to use the visible button.
-- The Android app's behavior is unchanged from v0.2.1; its version advances to v0.2.2 for this coordinated release. Both platforms retain the greeting and unclear-input fixes from v0.2.1.
+- Browser starts its bundled SearXNG service on the Mac when you open the app and stops it when you quit.
+- Use the toolbar gear or **⌘,** to manage local search, pick sources, and adjust SafeSearch. Brave Search and DuckDuckGo are enabled by default, and Bing is available as an option.
+- SearXNG sends submitted queries to the sources you enable. Provider availability and SafeSearch support can vary.
+
+## Android
+
+- Browser Search uses the Mwmbl web search API and displays the results in the app.
+- Back and Forward restore cached results, and Reload refreshes them.
 
 ## Downloads
 
-- **Browser-0.2.2-macOS-universal.dmg** — open the disk image and drag Browser to Applications. Requires macOS 13 or later, on Apple silicon or Intel.
-- **Browser-0.2.2-macOS-universal.zip** — the same universal Mac app in a ZIP archive.
-- **Browser-0.2.2-Android.apk** — install or update Browser on Android 8.0 (API 26) or later. Uses the existing production signing certificate, version code 4, with debugging disabled.
-- **SHA256SUMS.txt**, **Android-SHA256SUMS.txt**, and **Android-signature.txt** — package checksums and the public Android signing-certificate report.
+- **Browser-0.4.0-macOS-universal.dmg** or **Browser-0.4.0-macOS-universal.zip** for macOS 13 or later on Apple Silicon or Intel.
+- **Browser-0.4.0-Android.apk** for Android 8.0 or later. The APK uses the existing production signing certificate and version code 6.
+- **SHA256SUMS.txt** and **Android-SHA256SUMS.txt** list the package checksums. **Android-signature.txt** lists the public Android signing-certificate fingerprint.
 
-The Mac app is ad-hoc signed and is not notarized by Apple. If macOS blocks its first launch, follow [Apple's first-launch instructions](https://support.apple.com/102445).
-
-The model remains a separate download. Android browsing tasks use the local model on a paired Mac; recognized simple replies do not require pairing. Keep both devices on the same local network and desktop Browser open while sharing.
+The Mac app uses ad-hoc signing. macOS may require you to approve the first launch in **System Settings → Privacy & Security**. [Apple’s first-launch instructions](https://support.apple.com/102445)
