@@ -27,10 +27,12 @@ Apple's instructions: https://support.apple.com/102445
 Click AI Agent in the toolbar to open the side panel. Close it with its X
 button or toggle it with Shift-Command-A. Choose Download Model to install
 the default local model, or choose a compatible Qwen GGUF file.
-To connect Android, click Connect Phone beside Run and Stop in the panel,
-then choose Start Sharing and scan the QR code or paste the pairing link
-on your phone.
-Keep Browser open on this Mac and both devices on the same local network.
+To share this Mac's model, open AI Agent > Devices > Share This Mac's Model,
+then choose Start Sharing. Scan the QR code on your phone or paste the pairing
+link into its Devices menu. After pairing, select the Mac by name in Devices.
+You can also choose Connect a Phone in the Mac's Devices window.
+For internet access, choose Find Internet Address on a supported router or
+enter a reachable address. Keep Browser open and this Mac awake while sharing.
 
 Reddit opens in Website Compatibility, which supports JavaScript and forms.
 Use Navigate > Website Compatibility to switch engines for other websites.
